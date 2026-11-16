@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.tmp/
+dev.log
+*.log
+
+.freebuff/
+.DS_Store
+.vscode/
+.idea/
+
+.env
+.env.*
+!.env.example
