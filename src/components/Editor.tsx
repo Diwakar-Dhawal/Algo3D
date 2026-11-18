@@ -11,9 +11,19 @@ type Props = {
   breakpoints: Set<number>;
   onToggleBreakpoint: (line: number) => void;
   lang?: LangId;
+  /** viewers in a room can read and set their own breakpoints, but not type */
+  readOnly?: boolean;
 };
 
-export function Editor({ code, onChange, activeLine, breakpoints, onToggleBreakpoint, lang = 'java' }: Props) {
+export function Editor({
+  code,
+  onChange,
+  activeLine,
+  breakpoints,
+  onToggleBreakpoint,
+  lang = 'java',
+  readOnly = false,
+}: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
@@ -77,13 +87,18 @@ export function Editor({ code, onChange, activeLine, breakpoints, onToggleBreakp
 
         <textarea
           ref={textareaRef}
-          className="editor-input"
+          className={`editor-input ${readOnly ? 'is-readonly' : ''}`}
           value={code}
           spellCheck={false}
           wrap="off"
-          onChange={(e) => onChange(e.target.value)}
+          readOnly={readOnly}
+          aria-readonly={readOnly}
+          onChange={(e) => {
+            if (!readOnly) onChange(e.target.value);
+          }}
           onScroll={syncScroll}
           onKeyDown={(e) => {
+            if (readOnly) return;
             const ta = e.currentTarget;
             if (e.key === 'Tab') {
               e.preventDefault();

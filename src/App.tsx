@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CodeLab } from './CodeLab';
 import { Library } from './Library';
 import { Show, SignInButton, UserButton } from '@clerk/react';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { GoogleMark } from './auth/GoogleMark';
+import { RoomsProvider, useRooms } from './rooms/RoomContext';
+import { RoomsDrawer } from './rooms/RoomsDrawer';
 
 function Account() {
   const { user, stats, loading, available } = useAuth();
@@ -38,35 +40,70 @@ function Account() {
   );
 }
 
-export default function App() {
+function RoomsButton({ onOpen }: { onOpen: () => void }) {
+  const { user, available } = useAuth();
+  const { active } = useRooms();
+  if (!available || !user) return null;
+  return (
+    <button
+      className={`ghost-action rooms-btn ${active ? 'is-live' : ''}`}
+      onClick={onOpen}
+      title={active ? `In room “${active.room.name}”` : 'Collaborate in a room'}
+    >
+      {active ? `● ${active.room.name}` : 'Rooms'}
+    </button>
+  );
+}
+
+function Shell() {
   const [mode, setMode] = useState<'code' | 'library'>('code');
+  const [inviteCode] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '');
+  const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
+  const { active } = useRooms();
+  const roomId = active?.room.id ?? null;
+
+  // a room always lives in the code lab
+  useEffect(() => {
+    if (roomId) setMode('code');
+  }, [roomId]);
 
   return (
-    <AuthProvider>
-      <div className="app">
-        <header className="topbar">
-          <div className="brand">
-            <div className="mark">A3</div>
-            <div className="brand-text">
-              <h1>Algo3D</h1>
-              <p>Java, Python, JavaScript and C++, stepped through in three dimensions</p>
-            </div>
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="mark">A3</div>
+          <div className="brand-text">
+            <h1>Algo3D</h1>
+            <p>Java, Python, JavaScript and C++, stepped through in three dimensions</p>
           </div>
+        </div>
 
-          <nav className="modes">
-            <button className={`mode ${mode === 'code' ? 'on' : ''}`} onClick={() => setMode('code')}>
-              Your code
-            </button>
-            <button className={`mode ${mode === 'library' ? 'on' : ''}`} onClick={() => setMode('library')}>
-              Algorithm library
-            </button>
-          </nav>
+        <nav className="modes">
+          <button className={`mode ${mode === 'code' ? 'on' : ''}`} onClick={() => setMode('code')}>
+            Your code
+          </button>
+          <button className={`mode ${mode === 'library' ? 'on' : ''}`} onClick={() => setMode('library')}>
+            Algorithm library
+          </button>
+        </nav>
 
-          <Account />
-        </header>
+        <RoomsButton onOpen={() => setRoomsOpen(true)} />
+        <Account />
+      </header>
 
-        {mode === 'code' ? <CodeLab /> : <Library />}
-      </div>
+      {mode === 'code' ? <CodeLab onOpenRooms={() => setRoomsOpen(true)} /> : <Library />}
+
+      <RoomsDrawer open={roomsOpen} onClose={() => setRoomsOpen(false)} initialCode={inviteCode} />
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <RoomsProvider>
+        <Shell />
+      </RoomsProvider>
     </AuthProvider>
   );
 }

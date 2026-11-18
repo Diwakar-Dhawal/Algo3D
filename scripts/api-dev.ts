@@ -9,6 +9,10 @@ import me from '../api/auth/me';
 import saves from '../api/saves/index';
 import saveItem from '../api/saves/[id]';
 import activity from '../api/activity';
+import rooms from '../api/rooms/index';
+import roomJoin from '../api/rooms/join';
+import roomItem from '../api/rooms/[id]';
+import roomState from '../api/rooms/[id]/state';
 
 const PORT = Number(process.env.API_PORT ?? 3000);
 
@@ -18,13 +22,24 @@ const routes: Record<string, Handler> = {
   '/api/auth/me': me as unknown as Handler,
   '/api/saves': saves as unknown as Handler,
   '/api/activity': activity as unknown as Handler,
+  '/api/rooms': rooms as unknown as Handler,
+  '/api/rooms/join': roomJoin as unknown as Handler,
 };
+
+/** nested paths that Vercel's file router would handle for us in production */
+const dynamicRoutes: [RegExp, Handler][] = [
+  [/^\/api\/rooms\/\d+\/state$/, roomState as unknown as Handler],
+  [/^\/api\/rooms\/\d+$/, roomItem as unknown as Handler],
+];
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
   const path = url.pathname.replace(/\/$/, '') || '/';
 
-  const handler = routes[path] ?? (/^\/api\/saves\/[^/]+$/.test(path) ? (saveItem as unknown as Handler) : null);
+  const handler =
+    routes[path] ??
+    dynamicRoutes.find(([pattern]) => pattern.test(path))?.[1] ??
+    (/^\/api\/saves\/[^/]+$/.test(path) ? (saveItem as unknown as Handler) : null);
 
   if (!handler) {
     res.statusCode = 404;

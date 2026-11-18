@@ -49,3 +49,48 @@ create table if not exists activity (
 -- `sessions` is no longer used: Clerk owns sessions. Kept so an existing
 -- database is not altered destructively; drop it whenever you like.
 -- create table if not exists sessions (...);
+
+-- ---------------------------------------------------------------- rooms --
+-- A room is a shared code lab. Roles live in src/rooms/roles.ts so adding one
+-- (`presenter`, `mentor`, …) is a single entry plus whatever UI uses it.
+
+create table if not exists rooms (
+  id          bigserial   primary key,
+  owner_id    bigint      not null references users(id) on delete cascade,
+  name        text        not null default 'Untitled room',
+  -- two invite codes: whoever uses one joins as that kind of participant
+  invite_code text        not null unique,
+  editor_code text        not null unique,
+  settings    jsonb       not null default '{}'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+alter table rooms add column if not exists editor_code text;
+create unique index if not exists rooms_editor_code_idx on rooms (editor_code);
+
+create table if not exists room_members (
+  room_id      bigint      not null references rooms(id) on delete cascade,
+  user_id      bigint      not null references users(id) on delete cascade,
+  role         text        not null default 'viewer',
+  last_seen_at timestamptz,
+  joined_at    timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+
+create index if not exists room_members_user_idx on room_members (user_id);
+
+-- the shared program: one row per room, version bumps on every accepted change
+create table if not exists room_state (
+  room_id     bigint      primary key references rooms(id) on delete cascade,
+  language    text        not null default 'java',
+  code        text        not null default '',
+  inputs      text        not null default '',
+  step        integer     not null default 0,
+  version     bigint      not null default 1,
+  -- a soft lease: one editor at a time may push code, so keystrokes never collide
+  driver_id   bigint      references users(id) on delete set null,
+  driver_until timestamptz,
+  updated_by  bigint      references users(id) on delete set null,
+  updated_at  timestamptz not null default now()
+);

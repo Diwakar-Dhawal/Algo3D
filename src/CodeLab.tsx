@@ -13,6 +13,9 @@ import { useAuth } from './auth/AuthContext';
 import { SavedDrawer } from './auth/SavedDrawer';
 import { authApi } from './auth/api';
 import type { Save } from './auth/api';
+import { useRooms } from './rooms/RoomContext';
+import { roleLabel } from './rooms/roles';
+import { setRoomSeed } from './rooms/seed';
 
 const BASE_MS = 620;
 
@@ -70,7 +73,7 @@ const KIND_LABEL: Record<string, string> = {
   end: 'end',
 };
 
-export function CodeLab() {
+export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
   const [boot] = useState(() => {
     const saved = loadSaved();
     // below the breakpoint the panels are tabs, so a saved collapse state would hide them
@@ -109,6 +112,23 @@ export function CodeLab() {
 
   const { user, stats, recordRun, setStats } = useAuth();
   const [savesOpen, setSavesOpen] = useState(false);
+
+  // ---- shared room -------------------------------------------------------
+  const rooms = useRooms();
+  const roomSession = rooms.active;
+  const inRoom = Boolean(roomSession);
+  const roomState = roomSession?.state ?? null;
+  const meId = user?.id ?? 0;
+  const driverId = roomState?.driver?.userId ?? null;
+  const mayEdit = !inRoom || rooms.can('editCode');
+  const mayRun = !inRoom || rooms.can('runCode');
+  const mayDrive = !inRoom || rooms.can('driveTrace');
+  // one editor types at a time: the room hands out a short lease
+  const typingLocked = inRoom && mayEdit && driverId !== null && driverId !== meId;
+  const canType = mayEdit && !typingLocked;
+  const driverName = driverId
+    ? roomSession?.members.find((member) => member.userId === driverId)?.name ?? 'Another editor'
+    : '';
   /** the saved program behind the current buffer, so it can be starred in place */
   const [loaded, setLoaded] = useState<Save | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -175,6 +195,7 @@ export function CodeLab() {
     setLang(target);
     setInputsDirty(true);
     remember(target, { code: save.code, inputs: save.inputs });
+    if (inRoom && canType) rooms.push({ language: target, code: save.code, inputs: save.inputs });
     setLoaded(save);
     setSavesOpen(false);
     run(save.code, target, save.inputs);
@@ -189,8 +210,45 @@ export function CodeLab() {
   };
 
   const editCode = (next: string) => {
-    remember(lang, { code: next, ...(inputsDirty ? {} : { inputs: inputsFor(lang, next) }) });
+    if (!canType) return;
+    const patch = { code: next, ...(inputsDirty ? {} : { inputs: inputsFor(lang, next) }) };
+    remember(lang, patch);
+    if (inRoom) rooms.push(patch);
   };
+
+  // the rooms panel seeds a new room from whatever is on screen
+  useEffect(() => {
+    setRoomSeed({ language: lang, code, inputs });
+  }, [lang, code, inputs]);
+
+  // adopt the shared program whenever the room moves on (someone typed, ran or scrubbed)
+  const appliedRoomId = useRef<number | null>(null);
+  const appliedRoomVersion = useRef(0);
+
+  useEffect(() => {
+    const session = roomSession;
+    const shared = roomState;
+    if (!session || !shared) {
+      appliedRoomId.current = null;
+      appliedRoomVersion.current = 0;
+      return;
+    }
+    if (appliedRoomId.current !== session.room.id) {
+      appliedRoomId.current = session.room.id;
+      appliedRoomVersion.current = 0;
+    }
+    if (shared.version <= appliedRoomVersion.current) return;
+    appliedRoomVersion.current = shared.version;
+
+    const target = (LANGS.some((def) => def.id === shared.language) ? shared.language : 'java') as LangId;
+    setLang(target);
+    setInputsDirty(true);
+    remember(target, { code: shared.code, inputs: shared.inputs });
+    setTrace(runIn(target, shared.code, shared.inputs));
+    setIndex(shared.index);
+    setSelected(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomSession?.room.id, roomState?.version]);
 
   useEffect(() => {
     try {
@@ -218,7 +276,17 @@ export function CodeLab() {
   const atStart = safe <= 0;
   const atEnd = safe >= total - 1;
 
+  /** move the playhead; in a room the step is shared, so the change is pushed */
+  const syncStep = (next: number) => {
+    if (!mayDrive) return;
+    const clamped = Math.max(0, Math.min(total - 1, next));
+    setPlaying(false);
+    setIndex(clamped);
+    if (inRoom) rooms.push({ index: clamped });
+  };
+
   const run = (source: string, language: LangId = lang, box = inputs) => {
+    if (!mayRun) return;
     recordRun();
     const next = runIn(language, source, box);
     setTrace(next);
@@ -227,6 +295,7 @@ export function CodeLab() {
     setSelected(null);
     // show the result straight away instead of leaving the user on the editor
     setView('visual');
+    if (inRoom) rooms.push({ index: 0 });
   };
 
   useEffect(() => {
@@ -265,18 +334,19 @@ export function CodeLab() {
         }
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        run(code);
+        return;
+      }
+      if (!mayDrive) return;
       if (e.code === 'Space') {
         e.preventDefault();
         setPlaying((p) => !p);
       } else if (e.key === 'ArrowRight') {
-        setPlaying(false);
-        setIndex((i) => Math.min(i + 1, total - 1));
+        syncStep(safe + 1);
       } else if (e.key === 'ArrowLeft') {
-        setPlaying(false);
-        setIndex((i) => Math.max(0, i - 1));
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        run(code);
+        syncStep(safe - 1);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -293,34 +363,37 @@ export function CodeLab() {
   };
 
   const runToBreakpoint = () => {
+    if (!mayDrive) return;
     for (let i = safe + 1; i < total; i++) {
       if (breakpoints.has(steps[i].line)) {
-        setPlaying(false);
-        setIndex(i);
+        syncStep(i);
         return;
       }
     }
-    setPlaying(false);
-    setIndex(Math.max(0, total - 1));
+    syncStep(Math.max(0, total - 1));
   };
 
   const pickSample = (id: string) => {
+    if (!canType) return;
     const sample = langDef.samples.find((s) => s.id === id);
     if (!sample) return;
     const next = inputsFor(lang, sample.code);
     setInputsDirty(false);
     remember(lang, { code: sample.code, inputs: next, sample: id });
     setBreakpoints(new Set());
+    if (inRoom) rooms.push({ language: lang, code: sample.code, inputs: next });
     run(sample.code, lang, next);
   };
 
   const pickLang = (id: LangId) => {
+    if (!canType) return;
     // each language keeps its own buffer, so switching back restores your work
     const source = memory.code[id];
     const box = memory.inputs[id];
     setLang(id);
     setInputsDirty(false);
     setBreakpoints(new Set());
+    if (inRoom) rooms.push({ language: id, code: source, inputs: box });
     run(source, id, box);
   };
 
@@ -353,14 +426,47 @@ export function CodeLab() {
       : null;
 
   return (
-    <main
-      className="lab"
-      data-view={view}
-      style={panelVars({
-        '--left-w': `${leftHidden ? 44 : left}px`,
-        '--right-w': `${rightHidden ? 44 : right}px`,
-      })}
-    >
+    <>
+      {roomSession ? (
+        <div className="room-strip">
+          <span className={`room-live ${rooms.connected ? 'on' : ''}`} title={rooms.connected ? 'Live' : 'Reconnecting'} />
+          <b>{roomSession.room.name}</b>
+          <span className="room-chip">{roleLabel(roomSession.room.role)}</span>
+          <span className="room-strip-note">
+            {typingLocked
+              ? `✎ ${driverName} is editing`
+              : roomSession.room.role === 'viewer'
+                ? 'Watching — the editors control the code and the trace'
+                : 'Shared session — your changes land for everyone'}
+          </span>
+          {rooms.notice ? <span className="room-strip-note warn">{rooms.notice}</span> : null}
+          {typingLocked ? (
+            <button className="ghost-action" onClick={() => rooms.push({ code, takeover: true })}>
+              Take over
+            </button>
+          ) : null}
+          <span className="room-strip-members">
+            {roomSession.members.filter((member) => member.online).length} online
+          </span>
+          {onOpenRooms ? (
+            <button className="ghost-action" onClick={onOpenRooms}>
+              Members
+            </button>
+          ) : null}
+          <button className="link-btn" onClick={() => void rooms.leaveRoom()}>
+            Leave
+          </button>
+        </div>
+      ) : null}
+
+      <main
+        className="lab"
+        data-view={view}
+        style={panelVars({
+          '--left-w': `${leftHidden ? 44 : left}px`,
+          '--right-w': `${rightHidden ? 44 : right}px`,
+        })}
+      >
       <div className="mtabs" role="tablist" aria-label="Lab panes">
         {VIEWS.map((option) => (
           <button
@@ -386,7 +492,13 @@ export function CodeLab() {
         <div className="panel-head">
           <span className="eyebrow">Source</span>
           <div className="head-actions">
-            <select className="minimal-select lang-select" value={lang} onChange={(e) => pickLang(e.target.value as LangId)} title="Language">
+            <select
+              className="minimal-select lang-select"
+              value={lang}
+              disabled={!canType}
+              onChange={(e) => pickLang(e.target.value as LangId)}
+              title={canType ? 'Language' : 'Your role cannot change the code'}
+            >
               {LANGS.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
@@ -396,6 +508,7 @@ export function CodeLab() {
             <select
               className="minimal-select"
               value={isCustom ? 'custom' : sampleId}
+              disabled={!canType}
               onChange={(e) => {
                 if (e.target.value !== 'custom') pickSample(e.target.value);
               }}
@@ -432,6 +545,7 @@ export function CodeLab() {
           breakpoints={breakpoints}
           onToggleBreakpoint={toggleBreakpoint}
           lang={lang}
+          readOnly={!canType}
         />
 
         <div className="panel-foot">
@@ -571,29 +685,33 @@ export function CodeLab() {
         </div>
 
         <div className="playbar">
-          <button className="icon-btn" title="Restart" onClick={() => { setPlaying(false); setIndex(0); }}>
+          <button className="icon-btn" title="Restart" disabled={!mayDrive} onClick={() => syncStep(0)}>
             ↺
           </button>
-          <button
-            className="icon-btn"
-            title="Previous step"
-            disabled={atStart}
-            onClick={() => { setPlaying(false); setIndex(Math.max(0, safe - 1)); }}
-          >
+          <button className="icon-btn" title="Previous step" disabled={atStart || !mayDrive} onClick={() => syncStep(safe - 1)}>
             ◀
           </button>
-          <button className="play-btn" title="Play / pause" onClick={() => { if (atEnd) setIndex(0); setPlaying((p) => !p); }}>
+          <button
+            className="play-btn"
+            title={mayDrive ? 'Play / pause' : 'Only editors can run or move the trace'}
+            disabled={!mayDrive}
+            onClick={() => {
+              if (!mayDrive) return;
+              if (atEnd) setIndex(0);
+              setPlaying((p) => !p);
+            }}
+          >
             {playing ? '❙❙' : '▶'}
+          </button>
+          <button className="icon-btn" title="Next step" disabled={atEnd || !mayDrive} onClick={() => syncStep(safe + 1)}>
+            ▶
           </button>
           <button
             className="icon-btn"
-            title="Next step"
-            disabled={atEnd}
-            onClick={() => { setPlaying(false); setIndex(Math.min(total - 1, safe + 1)); }}
+            title="Run to next breakpoint"
+            onClick={runToBreakpoint}
+            disabled={atEnd || !mayDrive}
           >
-            ▶
-          </button>
-          <button className="icon-btn" title="Run to next breakpoint" onClick={runToBreakpoint} disabled={atEnd}>
             ⏭
           </button>
           <input
@@ -602,7 +720,8 @@ export function CodeLab() {
             min={0}
             max={Math.max(total - 1, 0)}
             value={safe}
-            onChange={(e) => { setPlaying(false); setIndex(Number(e.target.value)); }}
+            disabled={!mayDrive}
+            onChange={(e) => syncStep(Number(e.target.value))}
           />
           <label className="speed">
             <span>speed</span>
@@ -636,9 +755,13 @@ export function CodeLab() {
             <span className="eyebrow">Inputs</span>
             <button
               className="link-btn"
+              disabled={!canType}
               onClick={() => {
+                if (!canType) return;
+                const next = inputsFor(lang, code);
                 setInputsDirty(false);
-                remember(lang, { inputs: inputsFor(lang, code) });
+                remember(lang, { inputs: next });
+                if (inRoom) rooms.push({ inputs: next });
               }}
             >
               detect
@@ -648,9 +771,12 @@ export function CodeLab() {
             className="inputs-box"
             value={inputs}
             spellCheck={false}
+            readOnly={!canType}
             onChange={(e) => {
+              if (!canType) return;
               setInputsDirty(true);
               remember(lang, { inputs: e.target.value });
+              if (inRoom) rooms.push({ inputs: e.target.value });
             }}
             placeholder={'nums = [3, 1, 2]\ncall sortValues(nums)'}
             rows={4}
@@ -660,7 +786,7 @@ export function CodeLab() {
             language. A <code>call f(args)</code> line runs inside your program and prints the result.
           </p>
           <div className="inputs-actions">
-            <button className="btn-gold" onClick={() => run(code, lang)}>
+            <button className="btn-gold" onClick={() => run(code, lang)} disabled={!mayRun}>
               Run with inputs
             </button>
           </div>
@@ -754,6 +880,7 @@ export function CodeLab() {
         current={{ language: lang, code, inputs }}
         onLoad={openSave}
       />
-    </main>
+      </main>
+    </>
   );
 }

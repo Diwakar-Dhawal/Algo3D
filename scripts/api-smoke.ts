@@ -12,6 +12,10 @@ import me from '../api/auth/me';
 import saves from '../api/saves/index';
 import saveItem from '../api/saves/[id]';
 import activity from '../api/activity';
+import rooms from '../api/rooms/index';
+import roomJoin from '../api/rooms/join';
+import roomItem from '../api/rooms/[id]';
+import roomState from '../api/rooms/[id]/state';
 
 for (const file of ['.env.local', '.env']) {
   if (!existsSync(file)) continue;
@@ -93,6 +97,18 @@ async function run() {
   check('users.google_sub is gone', !names.includes('google_sub'));
   check('saves table exists', ((await sql.query("select to_regclass('public.saves') as t")) as { t: string | null }[])[0]?.t !== null);
   check('activity table exists', ((await sql.query("select to_regclass('public.activity') as t")) as { t: string | null }[])[0]?.t !== null);
+  const roomTables = (await sql.query(
+    "select to_regclass('public.rooms') as r, to_regclass('public.room_members') as m, to_regclass('public.room_state') as s"
+  )) as { r: string | null; m: string | null; s: string | null }[];
+  check(
+    'rooms tables exist',
+    Boolean(roomTables[0]?.r && roomTables[0]?.m && roomTables[0]?.s),
+    JSON.stringify(roomTables[0])
+  );
+  const roomColumns = (await sql.query(
+    `select column_name from information_schema.columns where table_name = 'rooms'`
+  )) as { column_name: string }[];
+  check('rooms has both invite codes', roomColumns.some((row) => row.column_name === 'editor_code'));
 
   // --- guests --------------------------------------------------------------
   let res = makeRes();
@@ -123,6 +139,31 @@ async function run() {
   res = makeRes();
   await saves(makeReq('/api/saves', { auth: 'Basic abc' }) as never, res as never);
   check('non-bearer auth is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  // --- rooms: every entry point needs a session ---------------------------
+  res = makeRes();
+  await rooms(makeReq('/api/rooms') as never, res as never);
+  check('guest room list is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await rooms(makeReq('/api/rooms', { method: 'POST', body: { name: 'x' } }) as never, res as never);
+  check('guest room create is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await roomJoin(makeReq('/api/rooms/join', { method: 'POST', body: { code: 'ABCD2345' } }) as never, res as never);
+  check('guest room join is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await roomItem(makeReq('/api/rooms/1') as never, res as never);
+  check('guest room read is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await roomState(makeReq('/api/rooms/1/state', { method: 'PUT', body: { index: 1 } }) as never, res as never);
+  check('guest room state push is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await roomItem(makeReq('/api/rooms/1', { method: 'DELETE' }) as never, res as never);
+  check('guest room delete is 401', res.statusCode === 401, `got ${res.statusCode}`);
 
   // --- authorised flows (needs a live Clerk session token) ----------------
   const token = process.env.CLERK_TEST_TOKEN;

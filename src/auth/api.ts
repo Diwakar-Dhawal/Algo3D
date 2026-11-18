@@ -38,7 +38,10 @@ export function setTokenGetter(fn: (() => Promise<string | null>) | null): void 
   tokenGetter = fn;
 }
 
-async function call<T>(path: string, init: Init = {}): Promise<T | null> {
+export type ApiResult<T> = { status: number; ok: boolean; data: T | null };
+
+/** like call(), but keeps the status and error body so callers can react to a 409 */
+export async function apiRequest<T>(path: string, init: Init = {}): Promise<ApiResult<T>> {
   try {
     const token = tokenGetter ? await tokenGetter() : null;
     const headers: Record<string, string> = {};
@@ -50,11 +53,21 @@ async function call<T>(path: string, init: Init = {}): Promise<T | null> {
       headers,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
+    let data: T | null = null;
+    try {
+      data = (await response.json()) as T;
+    } catch {
+      data = null;
+    }
+    return { status: response.status, ok: response.ok, data };
   } catch {
-    return null;
+    return { status: 0, ok: false, data: null };
   }
+}
+
+async function call<T>(path: string, init: Init = {}): Promise<T | null> {
+  const result = await apiRequest<T>(path, init);
+  return result.ok ? result.data : null;
 }
 
 export const authApi = {
