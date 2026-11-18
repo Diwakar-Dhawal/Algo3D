@@ -8,9 +8,9 @@ export type Tok = {
 };
 
 const OPS = [
-  '>>>=', '<<=', '>>=', '++', '--', '+=', '-=', '*=', '/=', '%=', '==', '!=', '<=', '>=',
+  '...', '->', '::', '>>>=', '<<=', '>>=', '++', '--', '+=', '-=', '*=', '/=', '%=', '==', '!=', '<=', '>=',
   '&&', '||', '<<', '>>', '=', '+', '-', '*', '/', '%', '<', '>', '!', '?', ':', ';', ',',
-  '.', '(', ')', '[', ']', '{', '}',
+  '.', '(', ')', '[', ']', '{', '}', '@', '|', '&', '^', '~',
 ];
 
 const ESCAPES: Record<string, string> = {
@@ -64,11 +64,19 @@ export function lex(src: string): Tok[] {
     if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(src[i + 1] ?? ''))) {
       const start = i;
       let isDouble = false;
-      while (i < src.length && /[0-9]/.test(src[i])) i++;
+      // 0xFF, 0b1010 and digit separators like 1_000_000
+      if (c === '0' && /[xXbB]/.test(src[i + 1] ?? '')) {
+        i += 2;
+        while (i < src.length && /[0-9a-fA-F_]/.test(src[i])) i++;
+        if (/[Ll]/.test(src[i] ?? '')) i++;
+        toks.push({ k: 'num', v: src.slice(start, i), line, isDouble: false });
+        continue;
+      }
+      while (i < src.length && /[0-9_]/.test(src[i])) i++;
       if (src[i] === '.') {
         isDouble = true;
         i++;
-        while (i < src.length && /[0-9]/.test(src[i])) i++;
+        while (i < src.length && /[0-9_]/.test(src[i])) i++;
       }
       if (src[i] === 'e' || src[i] === 'E') {
         isDouble = true;
@@ -87,7 +95,8 @@ export function lex(src: string): Tok[] {
       let out = '';
       while (i < src.length && src[i] !== quote) {
         if (src[i] === '\\') {
-          out += ESCAPES[src[i + 1]] ?? src[i + 1];
+          // keep a backslash Java would not recognise, so regexes like \d survive
+          out += ESCAPES[src[i + 1]] ?? '\\' + src[i + 1];
           i += 2;
         } else {
           if (src[i] === '\n') line++;

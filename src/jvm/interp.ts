@@ -7,17 +7,37 @@ const MAX_DEPTH = 90;
 const MAX_HEAP_OBJECTS = 300;
 const MAX_ARRAY = 400;
 
-const INT = (v: number): Val => ({ t: 'int', v: Math.trunc(v) });
+// `int` wraps at 32 bits in Java, so 2**31 - 1 + 1 is negative here too
+const INT = (v: number): Val => ({ t: 'int', v: Math.trunc(v) | 0 });
+const LONG = (v: number): Val => ({ t: 'long', v: Math.trunc(v) });
 const DBL = (v: number): Val => ({ t: 'double', v });
 const BOOL = (v: boolean): Val => ({ t: 'bool', v });
 const STR = (v: string): Val => ({ t: 'str', v });
 const CHR = (v: string): Val => ({ t: 'char', v });
 const NULLV: Val = { t: 'null' };
+const OUTV: Val = { t: 'out' };
+
+type FnSpec =
+  | { kind: 'lambda'; params: string[]; body: Expr | Stmt; block: boolean; line: number }
+  | { kind: 'ref'; target: Val; name: string }
+  /** builtin accessor used by Map.Entry.comparingByKey / comparingByValue */
+  | { kind: 'entry'; field: 'key' | 'value' };
 
 /** Names that behave like static namespaces even though they are not user classes. */
 const BUILTIN_NS = new Set([
   'System', 'Math', 'Integer', 'Arrays', 'Character', 'String', 'Collections',
   'ArrayList', 'List', 'Map', 'HashMap', 'Double', 'Long', 'Boolean', 'Objects',
+  'Stream', 'IntStream', 'Collectors', 'Set', 'HashSet', 'LinkedHashSet', 'TreeSet',
+  'TreeMap', 'LinkedHashMap', 'LinkedList', 'Function', 'Comparator',
+  'StringBuilder', 'StringBuffer', 'Map', 'Entry', 'System', 'Optional', 'PrintStream',
+]);
+
+/** exceptions the visualizer can throw, throw again and catch */
+const BUILTIN_EXCEPTIONS = new Set([
+  'Exception', 'RuntimeException', 'IllegalArgumentException', 'IllegalStateException',
+  'ArithmeticException', 'NullPointerException', 'IndexOutOfBoundsException',
+  'ArrayIndexOutOfBoundsException', 'UnsupportedOperationException', 'NoSuchElementException',
+  'NumberFormatException', 'IllegalThreadStateException',
 ]);
 
 class RuntimeError extends Error {
@@ -31,6 +51,13 @@ class ReturnSignal {
 }
 class BreakSignal {}
 class ContinueSignal {}
+/** a Java exception: catchable, unlike RuntimeError (an unsupported construct) */
+class JavaException {
+  constructor(public type: string, public message: string) {}
+}
+class YieldSignal {
+  constructor(public value: Val) {}
+}
 
 type VarSlot = { type: TypeRef; value: Val; prev?: Val };
 type Frame = {
@@ -58,9 +85,79 @@ class Machine {
   private steps: TraceStep[] = [];
   private effects: Effect[] = [];
   private entry = '';
+  private fns = new Map<number, FnSpec>();
+  private fnSeq = 0;
 
   constructor(private classes: ClassDef[]) {
-    for (const cls of classes) this.classMap.set(cls.name, cls);
+    for (const cls of classes) {
+      // a simple name only wins if no earlier class claimed it, so `Outer.Node`
+      // never shadows a top-level `Node` that the program refers to plainly
+      if (!this.classMap.has(cls.name)) this.classMap.set(cls.name, cls);
+    }
+    for (const cls of classes) {
+      if (cls.qualified) this.classMap.set(cls.qualified, cls);
+    }
+  }
+
+  /* ---------- class hierarchy ---------- */
+
+  /** the class itself and then its ancestors */
+  private chainOf(cls: ClassDef | undefined): ClassDef[] {
+    const out: ClassDef[] = [];
+    let current = cls;
+    let guard = 0;
+    while (current && guard++ < 24) {
+      out.push(current);
+      current = current.parent ? this.classMap.get(current.parent) : undefined;
+    }
+    return out;
+  }
+
+  /** most-derived first, so an override wins */
+  private findMethod(cls: ClassDef | undefined, name: string, arity: number): { cls: ClassDef; method: MethodDef } | null {
+    for (const owner of this.chainOf(cls)) {
+      const method = owner.methods.find((m) => m.name === name && !m.isCtor && m.params.length === arity);
+      if (method) return { cls: owner, method };
+      // `void f(int... xs)` accepts any number of trailing arguments
+      const variadic = owner.methods.find((m) => {
+        if (m.name !== name || m.isCtor) return false;
+        const last = m.params[m.params.length - 1];
+        return !!last && last.type.dims > 0 && arity >= m.params.length - 1;
+      });
+      if (variadic) return { cls: owner, method: variadic };
+    }
+    // a default method body can live on an implemented interface
+    for (const owner of this.chainOf(cls)) {
+      for (const ifaceName of owner.interfaces) {
+        const iface = this.classMap.get(ifaceName);
+        const method = iface?.methods.find(
+          (m) => m.name === name && !m.isCtor && m.params.length === arity && m.body.t === 'block' && m.body.body.length > 0
+        );
+        if (iface && method) return { cls: iface, method };
+      }
+    }
+    return null;
+  }
+
+  private findCtor(cls: ClassDef, arity: number): { cls: ClassDef; method: MethodDef } | null {
+    for (const owner of this.chainOf(cls)) {
+      const ctor = owner.methods.find((m) => m.isCtor && m.params.length === arity);
+      if (ctor) return { cls: owner, method: ctor };
+    }
+    return null;
+  }
+
+  /** inherited instance fields, base class first */
+  private fieldChain(cls: ClassDef) {
+    const out: { type: TypeRef; name: string; init: Expr | null; isStatic: boolean }[] = [];
+    for (const owner of this.chainOf(cls).reverse()) {
+      for (const field of owner.fields) {
+        if (field.isStatic) continue;
+        if (out.some((f) => f.name === field.name)) continue;
+        out.push(field);
+      }
+    }
+    return out;
   }
 
   /* ---------- trace ---------- */
@@ -115,12 +212,33 @@ class Machine {
           cells: obj.cells.map((c) => this.toTrace(c)),
         });
       } else if (obj.kind === 'list') {
+        const kindLabel = this.refLabel(obj.id);
         out.push({
           id: obj.id,
           kind: 'list',
-          label: `ArrayList<${obj.elemType}>[${obj.items.length}]`,
-          type: `ArrayList<${obj.elemType}>`,
+          label: `${kindLabel}[${obj.items.length}]`,
+          type: obj.elemType === 'Set' || obj.elemType === 'TreeSet' ? 'Set' : `ArrayList<${obj.elemType}>`,
           cells: obj.items.map((c) => this.toTrace(c)),
+        });
+      } else if (obj.kind === 'map') {
+        out.push({
+          id: obj.id,
+          kind: 'object',
+          label: `${obj.mapType}{${obj.entries.length}}`,
+          type: obj.mapType,
+          cells: [],
+          fields: obj.entries.slice(0, 8).map((entry) => ({ name: this.str(entry.key), value: this.toTrace(entry.value) })),
+        });
+      } else if (obj.kind === 'iterator') {
+        // iterators are plumbing, not data worth drawing
+      } else if (obj.kind === 'builder') {
+        out.push({
+          id: obj.id,
+          kind: 'object',
+          label: `StringBuilder[${obj.text.length}]`,
+          type: 'StringBuilder',
+          cells: [],
+          fields: [{ name: 'text', value: this.toTrace(STR(obj.text)) }],
         });
       } else {
         out.push({
@@ -143,7 +261,9 @@ class Machine {
     let text = '?';
     if (v.t === 'str') text = `"${v.v}"`;
     else if (v.t === 'char') text = `'${v.v}'`;
-    else if (v.t === 'bool' || v.t === 'int' || v.t === 'double') text = String(v.v);
+    else if (v.t === 'bool' || v.t === 'int' || v.t === 'long' || v.t === 'double') text = String(v.v);
+    else if (v.t === 'enum') text = v.name;
+    else if (v.t === 'exc') text = v.type;
     return { kind: 'prim', text, type: v.t };
   }
 
@@ -153,13 +273,23 @@ class Machine {
     const o = this.heap.get(id);
     if (!o) return `@${id}`;
     if (o.kind === 'array') return `${o.elemType}[${o.cells.length}]`;
-    if (o.kind === 'list') return `ArrayList`;
+    if (o.kind === 'list') {
+      if (o.elemType === 'Set' || o.elemType === 'TreeSet') return 'Set';
+      if (o.elemType === 'Stack') return 'Stack';
+      if (o.elemType === 'Queue' || o.elemType === 'Deque' || o.elemType === 'ArrayDeque') return 'Queue';
+      if (o.elemType === 'PriorityQueue') return 'PriorityQueue';
+      return 'ArrayList';
+    }
+    if (o.kind === 'map') return o.mapType;
+    if (o.kind === 'builder') return 'StringBuilder';
+    if (o.kind === 'iterator') return 'Iterator';
     return o.className;
   }
 
   private str(v: Val): string {
     switch (v.t) {
       case 'int':
+      case 'long':
         return String(v.v);
       case 'double':
         return Number.isInteger(v.v) ? v.v.toFixed(1) : String(v.v);
@@ -170,8 +300,19 @@ class Machine {
         return v.v;
       case 'null':
         return 'null';
-      case 'ref':
+      case 'ref': {
+        const obj = this.heap.get(v.id);
+        if (obj?.kind === 'list') return `[${obj.items.map((item) => this.str(item)).join(', ')}]`;
+        if (obj?.kind === 'map') return `{${obj.entries.map((e) => `${this.str(e.key)}=${this.str(e.value)}`).join(', ')}}`;
+        if (obj?.kind === 'builder') return obj.text;
         return `${this.refLabel(v.id)}@${v.id}`;
+      }
+      case 'enum':
+        return v.name;
+      case 'exc':
+        return v.message ? `${v.type}: ${v.message}` : v.type;
+      case 'opt':
+        return v.empty ? 'Optional.empty' : `Optional[${this.str(v.value)}]`;
       default:
         return '?';
     }
@@ -180,6 +321,13 @@ class Machine {
   private text(v: Val): string {
     if (v.t === 'str') return `"${v.v}"`;
     if (v.t === 'char') return `'${v.v}'`;
+    if (v.t === 'fn') return 'lambda';
+    if (v.t === 'stream') return `stream[${v.items.length}]`;
+    if (v.t === 'opt') return v.empty ? 'Optional.empty' : `Optional[${this.text(v.value)}]`;
+    if (v.t === 'collector') return `Collectors.${v.kind}`;
+    if (v.t === 'out') return 'System.out';
+    if (v.t === 'enum') return `${v.type}.${v.name}`;
+    if (v.t === 'exc') return v.type;
     return this.str(v);
   }
 
@@ -199,10 +347,11 @@ class Machine {
     if (type.dims > 0) return NULLV;
     switch (type.name) {
       case 'int':
-      case 'long':
       case 'short':
       case 'byte':
         return INT(0);
+      case 'long':
+        return LONG(0);
       case 'double':
       case 'float':
         return DBL(0);
@@ -218,11 +367,16 @@ class Machine {
   private coerce(type: TypeRef, v: Val): Val {
     if (type.dims > 0) return v;
     switch (type.name) {
-      case 'int':
       case 'long':
+        if (v.t === 'double') return LONG(v.v);
+        if (v.t === 'char') return LONG(v.v.charCodeAt(0));
+        if (v.t === 'int') return LONG(v.v);
+        return v;
+      case 'int':
       case 'short':
       case 'byte':
         if (v.t === 'double') return INT(v.v);
+        if (v.t === 'long') return INT(v.v);
         if (v.t === 'char') return INT(v.v.charCodeAt(0));
         return v;
       case 'double':
@@ -245,7 +399,11 @@ class Machine {
       if (o?.kind === 'object') return { name: o.className, dims: 0 };
       return { name: 'Object', dims: 0 };
     }
-    return { name: v.t === 'bool' ? 'boolean' : v.t === 'char' ? 'char' : v.t, dims: 0 };
+    if (v.t === 'enum' || v.t === 'exc') return { name: v.type, dims: 0 };
+    if (v.t === 'fn' || v.t === 'stream' || v.t === 'opt' || v.t === 'collector' || v.t === 'out' || v.t === 'ns') {
+      return { name: 'Object', dims: 0 };
+    }
+    return { name: v.t === 'bool' ? 'boolean' : v.t === 'char' ? 'char' : v.t === 'long' ? 'long' : v.t, dims: 0 };
   }
 
   /* ---------- statics ---------- */
@@ -260,13 +418,33 @@ class Machine {
       const value = field.init ? this.eval(field.init) : this.defaultFor(field.type);
       store.set(field.name, { type: field.type, value: this.coerce(field.type, value) });
     }
+    // enum constants behave like static fields of the enum type
+    (cls.constants ?? []).forEach((name, ordinal) => {
+      store.set(name, { type: { name: cls.name, dims: 0 }, value: { t: 'enum', type: cls.name, name, ordinal } });
+    });
+    // static initializer blocks run once, when the class is first touched
+    if (cls.staticInit?.length) {
+      const temp = this.frames.length === 0;
+      if (temp) {
+        this.frames.push({ id: ++this.frameSeq, owner: cls.name, method: '<clinit>', line: 0, vars: new Map(), thisVal: null });
+      }
+      try {
+        for (const block of cls.staticInit) this.exec(block);
+      } finally {
+        if (temp) this.frames.pop();
+      }
+    }
   }
 
   private staticSlot(className: string, name: string): VarSlot | undefined {
     const cls = this.classMap.get(className);
     if (!cls) return undefined;
-    this.ensureStatics(cls);
-    return this.statics.get(className)?.get(name);
+    for (const owner of this.chainOf(cls)) {
+      this.ensureStatics(owner);
+      const slot = this.statics.get(owner.name)?.get(name);
+      if (slot) return slot;
+    }
+    return undefined;
   }
 
   /* ---------- entry ---------- */
@@ -285,6 +463,19 @@ class Machine {
       this.invoke(mainCls, main, null, [{ t: 'ref', id: argsArray.id }]);
       this.snap('end', 'Program finished.');
     } catch (e) {
+      if (e instanceof JavaException) {
+        const message = `Exception in thread "main" ${e.type}${e.message ? ': ' + e.message : ''}`;
+        this.steps.push({
+          line: this.top()?.line ?? 0,
+          kind: 'error',
+          note: message,
+          stack: this.serializeFrames(),
+          heap: this.serializeHeap(),
+          stdout: this.out,
+          effects: [],
+        });
+        return { steps: this.steps, stdout: this.out, heap: this.serializeHeap(), error: message, entry: this.entry };
+      }
       if (e instanceof RuntimeError) {
         this.steps.push({
           line: e.line,
@@ -394,6 +585,34 @@ class Machine {
         }
       }
 
+      case 'foreach': {
+        const frame = this.top()!;
+        frame.line = s.line;
+        const items = this.itemsOf(this.eval(s.iter), s.line);
+        if (items.length === 0) this.snap('stmt', `for (… : ${src(s.iter)}) → nothing to iterate`);
+        for (const item of items) {
+          frame.line = s.line;
+          const type = s.type.name === 'var' ? this.inferType(item) : s.type;
+          const value = this.coerce(type, item);
+          const existing = frame.vars.get(s.name);
+          if (existing) {
+            existing.prev = existing.value;
+            existing.value = value;
+            existing.type = type;
+          } else {
+            frame.vars.set(s.name, { type, value });
+          }
+          this.snap('stmt', `${typeName(type)} ${s.name} = ${this.text(value)}`);
+          try {
+            this.exec(s.body);
+          } catch (e) {
+            if (e instanceof BreakSignal) return;
+            if (!(e instanceof ContinueSignal)) throw e;
+          }
+        }
+        return;
+      }
+
       case 'return': {
         this.top()!.line = s.line;
         const value = s.value ? this.eval(s.value) : NULLV;
@@ -406,7 +625,86 @@ class Machine {
 
       case 'continue':
         throw new ContinueSignal();
+
+      case 'switch': {
+        this.top()!.line = s.line;
+        const sel = this.eval(s.sel);
+        const label = sel.t === 'enum' ? sel.name : this.text(sel);
+        let index = -1;
+        for (let g = 0; g < s.groups.length; g++) {
+          const group = s.groups[g];
+          if (group.def) continue;
+          if (group.tests.some((test) => this.equals(sel, this.caseValue(test, sel)))) {
+            index = g;
+            break;
+          }
+        }
+        if (index < 0) index = s.groups.findIndex((g) => g.def);
+        this.snap('stmt', `switch (${src(s.sel)}) → ${label}`);
+        if (index < 0) return;
+
+        // `case X -> body` runs one arm; `case X: body` falls through until break
+        if (s.groups[index].arrow) {
+          for (const st of s.groups[index].body) this.exec(st);
+          return;
+        }
+        for (let g = index; g < s.groups.length; g++) {
+          try {
+            for (const st of s.groups[g].body) this.exec(st);
+          } catch (e) {
+            if (e instanceof BreakSignal) return;
+            throw e;
+          }
+        }
+        return;
+      }
+
+      case 'try': {
+        this.top()!.line = s.line;
+        try {
+          try {
+            this.exec(s.body);
+          } catch (e) {
+            if (!(e instanceof JavaException) || !s.catches.length) throw e;
+            const handler =
+              s.catches.find((c) => c.type === e.type) ??
+              s.catches.find((c) => ['Exception', 'Throwable', 'RuntimeException'].includes(c.type)) ??
+              s.catches[0];
+            const frame = this.top()!;
+            frame.vars.set(handler.param, {
+              type: { name: handler.type, dims: 0 },
+              value: { t: 'exc', type: e.type, message: e.message },
+            });
+            this.snap('stmt', `catch (${handler.type} ${handler.param}) → ${e.type}: ${e.message}`);
+            this.exec(handler.body);
+          }
+        } finally {
+          if (s.fin) this.exec(s.fin);
+        }
+        return;
+      }
+
+      case 'throw': {
+        this.top()!.line = s.line;
+        const value = this.eval(s.value);
+        const thrown = value.t === 'exc' ? value : { t: 'exc' as const, type: 'RuntimeException', message: this.str(value) };
+        this.snap('stmt', `throw ${thrown.type}${thrown.message ? ': ' + thrown.message : ''}`);
+        throw new JavaException(thrown.type, thrown.message);
+      }
+
+      case 'yield':
+        throw new YieldSignal(s.value ? this.eval(s.value) : NULLV);
     }
+  }
+
+  /** `case RED:` may name an enum constant without the `Color.` prefix */
+  private caseValue(test: Expr, sel: Val): Val {
+    if (sel.t === 'enum' && test.t === 'id') {
+      const cls = this.classMap.get(sel.type);
+      const at = (cls?.constants ?? []).indexOf(test.name);
+      if (at >= 0) return { t: 'enum', type: sel.type, name: test.name, ordinal: at };
+    }
+    return this.eval(test);
   }
 
   private truthy(v: Val): boolean {
@@ -481,7 +779,7 @@ class Machine {
   private eval(e: Expr): Val {
     switch (e.t) {
       case 'num':
-        return e.isDouble ? DBL(e.v) : INT(e.v);
+        return e.isDouble ? DBL(e.v) : e.isLong ? LONG(e.v) : INT(e.v);
       case 'str':
         return STR(e.v);
       case 'char':
@@ -518,11 +816,23 @@ class Machine {
         return this.truthy(this.eval(e.c)) ? this.eval(e.a) : this.eval(e.b);
       case 'field':
         return this.readField(this.eval(e.target), e.name);
+      case 'lam': {
+        const id = ++this.fnSeq;
+        this.fns.set(id, { kind: 'lambda', params: e.params, body: e.body, block: e.block, line: e.line });
+        return { t: 'fn', id };
+      }
+      case 'mref': {
+        const id = ++this.fnSeq;
+        this.fns.set(id, { kind: 'ref', target: this.eval(e.target), name: e.name });
+        return { t: 'fn', id };
+      }
+      case 'cast':
+        return this.coerce(e.type, this.eval(e.e));
       case 'index': {
         const arr = this.arrayOf(this.eval(e.target));
         const index = this.num(this.eval(e.index));
         if (index < 0 || index >= arr.cells.length) {
-          throw new RuntimeError(`ArrayIndexOutOfBoundsException: index ${index}, length ${arr.cells.length}`, this.top()?.line ?? 0);
+          throw new JavaException('ArrayIndexOutOfBoundsException', `Index ${index} out of bounds for length ${arr.cells.length}`);
         }
         return arr.cells[index];
       }
@@ -530,10 +840,49 @@ class Machine {
         return this.construct(e);
       case 'call':
         return this.call(e);
+      case 'super':
+        return this.top()?.thisVal ?? NULLV;
+      case 'switch': {
+        const sel = this.eval(e.sel);
+        const arm =
+          e.arms.find((a) => !a.def && a.tests.some((test) => this.equals(sel, this.caseValue(test, sel)))) ??
+          e.arms.find((a) => a.def);
+        if (!arm) throw new RuntimeError('switch expression matched no arm', this.top()?.line ?? 0);
+        if (arm.value) return this.eval(arm.value);
+        try {
+          this.exec(arm.body!);
+        } catch (err) {
+          if (err instanceof YieldSignal) return err.value;
+          throw err;
+        }
+        return NULLV;
+      }
     }
   }
 
   private binary(op: string, a: Val, b: Val): Val {
+    if (op === 'instanceof') {
+      const target = b.t === 'ns' ? b.name : b.t === 'str' ? b.v : '';
+      if (a.t === 'null') return BOOL(false);
+      if (a.t === 'str') return BOOL(['String', 'Object', 'CharSequence'].includes(target));
+      if (a.t === 'enum') return BOOL(a.type === target || ['Enum', 'Object'].includes(target));
+      if (a.t !== 'ref') return BOOL(false);
+      const obj = this.heap.get(a.id);
+      if (!obj) return BOOL(false);
+      if (obj.kind === 'object') {
+        const cls = this.classMap.get(obj.className);
+        if (cls && (cls.name === target || this.chainOf(cls).some((c) => c.name === target))) return BOOL(true);
+        return BOOL(cls?.interfaces.includes(target) === true || this.chainOf(cls).some((c) => c.interfaces.includes(target)));
+      }
+      if (obj.kind === 'array') return BOOL(['Object', 'Cloneable'].includes(target));
+      if (obj.kind === 'list') {
+        return BOOL(['List', 'ArrayList', 'Collection', 'Iterable', 'Set', 'Queue', 'Deque', 'Stack', 'Object'].includes(target));
+      }
+      if (obj.kind === 'map') return BOOL(['Map', 'HashMap', 'TreeMap', 'LinkedHashMap', 'Object'].includes(target));
+      if (obj.kind === 'builder') return BOOL(['StringBuilder', 'CharSequence', 'Object'].includes(target));
+      return BOOL(false);
+    }
+
     if (op === '+') {
       if (a.t === 'str' || b.t === 'str') return STR(this.str(a) + this.str(b));
     }
@@ -553,6 +902,7 @@ class Machine {
     const left = this.numeric(a);
     const right = this.numeric(b);
     const useDouble = a.t === 'double' || b.t === 'double';
+    const useLong = !useDouble && (a.t === 'long' || b.t === 'long');
     let result = 0;
     switch (op) {
       case '-':
@@ -562,11 +912,14 @@ class Machine {
         result = left * right;
         break;
       case '/':
-        if (right === 0) throw new RuntimeError('ArithmeticException: division by zero', this.top()?.line ?? 0);
+        if (right === 0) {
+          if (useDouble) return DBL(left / right);
+          throw new JavaException('ArithmeticException', '/ by zero');
+        }
         result = useDouble ? left / right : Math.trunc(left / right);
         break;
       case '%':
-        if (right === 0) throw new RuntimeError('ArithmeticException: modulo by zero', this.top()?.line ?? 0);
+        if (right === 0) throw new JavaException('ArithmeticException', '/ by zero');
         result = useDouble ? left % right : left % right;
         break;
       case '+':
@@ -575,11 +928,11 @@ class Machine {
       default:
         throw new RuntimeError(`Unsupported operator ${op}`, this.top()?.line ?? 0);
     }
-    return useDouble ? DBL(result) : INT(result);
+    return useDouble ? DBL(result) : useLong ? LONG(result) : INT(result);
   }
 
   private numeric(v: Val): number {
-    if (v.t === 'int' || v.t === 'double') return v.v;
+    if (v.t === 'int' || v.t === 'long' || v.t === 'double') return v.v;
     if (v.t === 'char') return v.v.charCodeAt(0);
     if (v.t === 'bool') return v.v ? 1 : 0;
     throw new RuntimeError(`Expected a number, found ${v.t}`, this.top()?.line ?? 0);
@@ -589,6 +942,8 @@ class Machine {
     if (a.t === 'null' || b.t === 'null') return a.t === 'null' && b.t === 'null';
     if (a.t === 'ref' && b.t === 'ref') return a.id === b.id;
     if (a.t === 'str' && b.t === 'str') return a.v === b.v;
+    if (a.t === 'enum' && b.t === 'enum') return a.type === b.type && a.name === b.name;
+    if (a.t === 'enum' || b.t === 'enum') return false;
     if (a.t === 'ref' || b.t === 'ref') return false;
     return this.numeric(a) === this.numeric(b);
   }
@@ -603,7 +958,7 @@ class Machine {
     }
     const old = this.readTarget(e.e);
     const step = e.op === '++' ? 1 : -1;
-    const next = old.t === 'double' ? DBL(old.v + step) : INT(this.numeric(old) + step);
+    const next = old.t === 'double' ? DBL(old.v + step) : old.t === 'long' ? LONG(old.v + step) : INT(this.numeric(old) + step);
     this.writeTarget(e.e, next);
     return e.prefix ? next : old;
   }
@@ -621,7 +976,7 @@ class Machine {
       const arr = this.arrayOf(this.eval(target.target));
       const index = this.num(this.eval(target.index));
       if (index < 0 || index >= arr.cells.length) {
-        throw new RuntimeError(`ArrayIndexOutOfBoundsException: index ${index}, length ${arr.cells.length}`, frame.line);
+        throw new JavaException('ArrayIndexOutOfBoundsException', `Index ${index} out of bounds for length ${arr.cells.length}`);
       }
       const prev = arr.cells[index];
       const coerced =
@@ -672,6 +1027,17 @@ class Machine {
     return this.writeTarget(e.target, combined);
   }
 
+  /** the values a `for (T x : seq)` walks: array cells or list items */
+  private itemsOf(v: Val, line: number): Val[] {
+    if (v.t === 'null') throw new RuntimeError('NullPointerException: cannot iterate over null', line);
+    if (v.t !== 'ref') throw new RuntimeError('for-each needs an array or a list', line);
+    const obj = this.heap.get(v.id);
+    if (!obj) throw new RuntimeError('NullPointerException', line);
+    if (obj.kind === 'array') return obj.cells;
+    if (obj.kind === 'list') return obj.items;
+    throw new RuntimeError(`for-each cannot iterate ${this.refLabel(v.id)}`, line);
+  }
+
   private arrayOf(v: Val): Extract<HeapObj, { kind: 'array' }> {
     if (v.t !== 'ref') throw new RuntimeError('NullPointerException: array is null', this.top()?.line ?? 0);
     const obj = this.heap.get(v.id);
@@ -681,7 +1047,9 @@ class Machine {
 
   private readField(target: Val, name: string): Val {
     if (target.t === 'ns') {
-      if (target.name === 'System' && name === 'out') return { t: 'stream' };
+      if (target.name === 'System' && name === 'out') return OUTV;
+      // `Map.Entry` used as a namespace for comparingByKey/comparingByValue
+      if (target.name === 'Map' && name === 'Entry') return { t: 'ns', name: 'Map.Entry' };
       const slot = this.staticSlot(target.name, name);
       if (slot) return slot.value;
       const constant = this.constant(target.name, name);
@@ -727,13 +1095,84 @@ class Machine {
       return this.makeArray(e.name, sizes, 0);
     }
 
+    // a constructor argument is either a comparator or a collection to copy
+    const ctorArg = () => {
+      if (!e.args.length) return { cmp: undefined as Val | undefined, source: undefined as Val | undefined };
+      const value = this.eval(e.args[0]);
+      if (value.t === 'cmpr') return { cmp: value as Val, source: undefined as Val | undefined };
+      return { cmp: undefined as Val | undefined, source: value };
+    };
+
     if (e.name === 'ArrayList' || e.name === 'LinkedList') {
-      const list = this.alloc({ kind: 'list', elemType: 'Object', items: [] as Val[] });
+      // `new ArrayList<>(other)` copies the elements it is given
+      const { source } = ctorArg();
+      const items = source ? [...this.elementsOf(source)] : [];
+      const list = this.alloc({ kind: 'list', elemType: 'Object', items: items as Val[] });
       return { t: 'ref', id: list.id };
     }
 
-    const cls = this.classMap.get(e.name);
-    if (!cls) throw new RuntimeError(`unknown class "${e.name}"`, this.top()?.line ?? 0);
+    // queues, deques, stacks and priority queues all read as a list of values
+    // (a user class named `Stack` still wins — see the classMap lookup below)
+    if (!this.classMap.has(e.name) && ['Stack', 'Queue', 'Deque', 'ArrayDeque', 'PriorityQueue'].includes(e.name)) {
+      const { cmp, source } = ctorArg();
+      const items = source ? [...this.elementsOf(source)] : [];
+      const list = this.alloc({ kind: 'list', elemType: e.name === 'Stack' ? 'Stack' : e.name, items, cmp });
+      return { t: 'ref', id: list.id };
+    }
+
+    if (e.name === 'HashMap' || e.name === 'TreeMap' || e.name === 'LinkedHashMap' || e.name === 'Map') {
+      const { cmp, source } = ctorArg();
+      const entries: { key: Val; value: Val }[] = [];
+      if (source) {
+        const from = source.t === 'ref' ? this.heap.get(source.id) : undefined;
+        if (from?.kind === 'map') entries.push(...from.entries.map((entry) => ({ key: entry.key, value: entry.value })));
+      }
+      const mapType = e.name === 'Map' ? 'HashMap' : e.name;
+      if (mapType === 'TreeMap' && entries.length) entries.sort((a, b) => this.compareValues(a.key, b.key, cmp));
+      const map = this.alloc({ kind: 'map', mapType, entries, cmp });
+      return { t: 'ref', id: map.id };
+    }
+
+    if (e.name === 'HashSet' || e.name === 'LinkedHashSet' || e.name === 'TreeSet' || e.name === 'Set') {
+      const { cmp, source } = ctorArg();
+      const items: Val[] = [];
+      for (const item of source ? this.elementsOf(source) : []) {
+        if (!items.some((seen) => this.equals(seen, item))) items.push(item);
+      }
+      if (e.name === 'TreeSet') items.sort((a, b) => this.compareValues(a, b, cmp));
+      const set = this.alloc({ kind: 'list', elemType: e.name === 'TreeSet' ? 'TreeSet' : 'Set', items, cmp });
+      return { t: 'ref', id: set.id };
+    }
+
+    // `new String(char[])`
+    if (e.name === 'String' && e.args.length) {
+      const arg = this.eval(e.args[0]);
+      if (arg.t === 'ref') {
+        const src = this.heap.get(arg.id);
+        if (src?.kind === 'array') return STR(src.cells.map((cell) => this.str(cell)).join(''));
+      }
+      return STR(this.str(arg));
+    }
+
+    if (BUILTIN_EXCEPTIONS.has(e.name)) {
+      const message = e.args.length ? this.str(this.eval(e.args[0])) : '';
+      return { t: 'exc', type: e.name, message };
+    }
+
+    if (e.name === 'StringBuilder' || e.name === 'StringBuffer') {
+      const text = e.args.length ? this.str(this.eval(e.args[0])) : '';
+      const builder = this.alloc({ kind: 'builder', text });
+      return { t: 'ref', id: builder.id };
+    }
+
+    // `new Outer.Node()` — nested classes are registered under their simple name
+    const cls = this.classMap.get(e.name) ?? this.classMap.get(e.name.split('.').pop() ?? '');
+    if (!cls) {
+      if (e.name === 'Scanner') {
+        throw new RuntimeError('Scanner is not supported — put your values in the Inputs panel instead.', this.top()?.line ?? 0);
+      }
+      throw new RuntimeError(`unknown class "${e.name}"`, this.top()?.line ?? 0);
+    }
     this.ensureStatics(cls);
     const args = e.args.map((a) => this.eval(a));
 
@@ -744,17 +1183,21 @@ class Machine {
     const savedThis = frame.thisVal;
     frame.thisVal = ref;
     try {
-      for (const field of cls.fields) {
-        if (field.isStatic) continue;
+      // inherited fields exist on the object too, base class first
+      for (const field of this.fieldChain(cls)) {
         const value = field.init ? this.eval(field.init) : this.defaultFor(field.type);
         obj.fields.push({ name: field.name, value: this.coerce(field.type, value) });
+      }
+      // then the instance initializer blocks, again base class first
+      for (const owner of this.chainOf(cls).reverse()) {
+        for (const block of owner.instanceInit ?? []) this.exec(block);
       }
     } finally {
       frame.thisVal = savedThis;
     }
 
-    const ctor = cls.methods.find((m) => m.isCtor && m.params.length === args.length);
-    if (ctor) this.invoke(cls, ctor, ref, args);
+    const ctor = this.findCtor(cls, args.length);
+    if (ctor) this.invoke(ctor.cls, ctor.method, ref, args);
     else if (args.length > 0) throw new RuntimeError(`No constructor ${cls.name}(${args.length} args)`, frame.line);
 
     return ref;
@@ -802,6 +1245,17 @@ class Machine {
       thisVal,
     };
     method.params.forEach((param, i) => {
+      // the last `T... xs` parameter collects every remaining argument
+      if (i === method.params.length - 1 && param.type.dims > 0) {
+        if (args.length === method.params.length && args[i]?.t === 'ref') {
+          frame.vars.set(param.name, { type: { name: param.type.name, dims: 1 }, value: args[i] });
+          return;
+        }
+        const cells = args.slice(i).map((value) => this.coerce({ name: param.type.name, dims: 0 }, value));
+        const packed: Val = { t: 'ref', id: this.alloc({ kind: 'array', elemType: param.type.name, cells, dims: [cells.length] }).id };
+        frame.vars.set(param.name, { type: { name: param.type.name, dims: 1 }, value: packed });
+        return;
+      }
       frame.vars.set(param.name, { type: param.type, value: this.coerce(param.type, args[i] ?? NULLV) });
     });
 
@@ -832,18 +1286,42 @@ class Machine {
 
   private call(e: Extract<Expr, { t: 'call' }>): Val {
     const { callee, args } = e;
+    const frame = this.top()!;
+
+    // super(...) runs the parent constructor on the object being built
+    if (callee.t === 'super') {
+      const cls = this.classMap.get(frame.owner);
+      const parent = cls?.parent ? this.classMap.get(cls.parent) : undefined;
+      if (!parent) throw new RuntimeError(`${cls?.name ?? 'this'} has no superclass`, frame.line);
+      const ctor = this.findCtor(parent, args.length);
+      if (!ctor) throw new RuntimeError(`no constructor ${parent.name}(${args.length} args)`, frame.line);
+      return this.invoke(ctor.cls, ctor.method, frame.thisVal, args.map((a) => this.eval(a)), true);
+    }
 
     if (callee.t === 'id') {
-      const frame = this.top()!;
       const cls = this.classMap.get(frame.owner);
       if (!cls) throw new RuntimeError(`unknown class ${frame.owner}`, frame.line);
-      const method = cls.methods.find((m) => m.name === callee.name && !m.isCtor && m.params.length === args.length);
-      if (!method) throw new RuntimeError(`cannot find method ${callee.name}(${args.length} args)`, frame.line);
+      // a call on `this` dispatches on the real object, so overrides win
+      let lookup = cls;
+      if (frame.thisVal?.t === 'ref') {
+        const self = this.heap.get(frame.thisVal.id);
+        if (self?.kind === 'object') lookup = this.classMap.get(self.className) ?? cls;
+      }
+      const found = this.findMethod(lookup, callee.name, args.length);
+      if (!found) throw new RuntimeError(`cannot find method ${callee.name}(${args.length} args)`, frame.line);
       const values = args.map((a) => this.eval(a));
-      return this.invoke(cls, method, method.isStatic ? null : frame.thisVal, values);
+      return this.invoke(found.cls, found.method, found.method.isStatic ? null : frame.thisVal, values);
     }
 
     if (callee.t === 'field') {
+      // super.method(...) starts the lookup at the parent
+      if (callee.target.t === 'super') {
+        const cls = this.classMap.get(frame.owner);
+        const parent = cls?.parent ? this.classMap.get(cls.parent) : undefined;
+        const found = this.findMethod(parent, callee.name, args.length);
+        if (!found) throw new RuntimeError(`no super method ${callee.name}()`, frame.line);
+        return this.invoke(found.cls, found.method, frame.thisVal, args.map((a) => this.eval(a)));
+      }
       const receiver = this.eval(callee.target);
       const values = args.map((a) => this.eval(a));
       return this.callOn(receiver, callee.name, values);
@@ -855,7 +1333,30 @@ class Machine {
   private callOn(receiver: Val, name: string, args: Val[]): Val {
     const line = this.top()?.line ?? 0;
 
-    if (receiver.t === 'stream') {
+    if (receiver.t === 'stream') return this.streamCall(receiver.items, name, args);
+
+    if (receiver.t === 'cmpr') {
+      switch (name) {
+        case 'reversed':
+          return { t: 'cmpr', steps: receiver.steps.map((step) => ({ ...step, desc: !step.desc })) };
+        case 'thenComparing':
+        case 'thenComparingInt':
+        case 'thenComparingLong':
+        case 'thenComparingDouble': {
+          // thenComparing(fn) or thenComparing(anotherComparator)
+          const extra = args[0];
+          const steps = extra?.t === 'cmpr' ? extra.steps : [{ fn: extra ?? null, desc: false }];
+          return { t: 'cmpr', steps: [...receiver.steps, ...steps] };
+        }
+        case 'compare':
+          return INT(this.compareValues(args[0] ?? NULLV, args[1] ?? NULLV, receiver));
+      }
+      throw new RuntimeError(`Comparator.${name}() is not supported`, line);
+    }
+
+    if (receiver.t === 'opt') return this.optCall(receiver, name, args);
+
+    if (receiver.t === 'out') {
       if (name === 'println') {
         const text = args.length ? this.str(args[0]) : '';
         this.out += text + '\n';
@@ -878,9 +1379,47 @@ class Machine {
       throw new RuntimeError(`System.out.${name} is not supported`, line);
     }
 
+    if (receiver.t === 'fn') throw new RuntimeError(`${this.text(receiver)} is not a method — use .apply() or a stream`, line);
+
     if (receiver.t === 'ns') return this.staticCall(receiver.name, name, args);
 
     if (receiver.t === 'str') return this.stringCall(receiver.v, name, args);
+
+    if (receiver.t === 'enum') {
+      switch (name) {
+        case 'name':
+        case 'toString':
+          return STR(receiver.name);
+        case 'ordinal':
+          return INT(receiver.ordinal);
+        case 'equals':
+          return BOOL(this.equals(receiver, args[0] ?? NULLV));
+        case 'compareTo': {
+          const other = args[0];
+          if (!other || other.t !== 'enum') throw new RuntimeError('compareTo needs another constant', line);
+          return INT(receiver.ordinal - other.ordinal);
+        }
+        case 'hashCode':
+          return INT(receiver.name.length + receiver.ordinal);
+      }
+      throw new RuntimeError(`Enum.${name}() is not supported`, line);
+    }
+
+    if (receiver.t === 'exc') {
+      switch (name) {
+        case 'getMessage':
+          return STR(receiver.message);
+        case 'toString':
+          return STR(receiver.message ? `${receiver.type}: ${receiver.message}` : receiver.type);
+        case 'printStackTrace':
+          return NULLV;
+        case 'getClass':
+          return STR(receiver.type);
+        case 'getLocalizedMessage':
+          return STR(receiver.message);
+      }
+      throw new RuntimeError(`Exception.${name}() is not supported`, line);
+    }
 
     if (receiver.t === 'null') throw new RuntimeError(`NullPointerException: calling ${name}() on null`, line);
 
@@ -890,11 +1429,39 @@ class Machine {
 
       if (obj.kind === 'list') return this.listCall(obj, name, args);
 
+      if (obj.kind === 'map') return this.mapCall(obj, name, args);
+
+      if (obj.kind === 'builder') return this.builderCall(obj, name, args);
+
+      if (obj.kind === 'iterator') {
+        switch (name) {
+          case 'hasNext':
+            return BOOL(obj.at < obj.of.length);
+          case 'next': {
+            if (obj.at >= obj.of.length) throw new JavaException('NoSuchElementException', 'the iterator is exhausted');
+            return obj.of[obj.at++];
+          }
+          case 'remove':
+            return NULLV;
+        }
+        throw new RuntimeError(`Iterator.${name}() is not supported`, line);
+      }
+
       if (obj.kind === 'object') {
-        const cls = this.classMap.get(obj.className);
-        const method = cls?.methods.find((m) => m.name === name && !m.isCtor && m.params.length === args.length);
-        if (!cls || !method) throw new RuntimeError(`${obj.className} has no method ${name}()`, line);
-        return this.invoke(cls, method, receiver, args);
+        // a map entry is a plain object with key/value fields
+        if (obj.className === 'Map.Entry') {
+          const key = obj.fields.find((f) => f.name === 'key')?.value ?? NULLV;
+          const value = obj.fields.find((f) => f.name === 'value')?.value ?? NULLV;
+          if (name === 'getKey') return key;
+          if (name === 'getValue') return value;
+          if (name === 'toString') return STR(`${this.str(key)}=${this.str(value)}`);
+        }
+        const found = this.findMethod(this.classMap.get(obj.className), name, args.length);
+        if (!found) {
+          if (name === 'toString') return STR(`${obj.className}@${obj.id}`);
+          throw new RuntimeError(`${obj.className} has no method ${name}()`, line);
+        }
+        return this.invoke(found.cls, found.method, receiver, args);
       }
 
       throw new RuntimeError(`Cannot call ${name}() on an array`, line);
@@ -903,22 +1470,184 @@ class Machine {
     throw new RuntimeError(`Cannot call ${name}() on ${receiver.t}`, line);
   }
 
+  /** printf / String.format: %d %s %f %x %c %b %n %% with width and precision */
   private printf(fmt: string, args: Val[]): string {
     let i = 0;
-    return fmt.replace(/%[-0-9.]*[dsfcn%]/g, (match) => {
-      if (match.endsWith('%')) return '%';
-      if (match.endsWith('n')) return '\n';
+    return fmt.replace(/%([-+0 ])?(\d+)?(?:\.(\d+))?([sdfxXbcneE%])/g, (match, flag: string, width: string, prec: string, conv: string) => {
+      if (conv === '%') return '%';
+      if (conv === 'n') return '\n';
       const arg = args[i++];
       if (!arg) return match;
-      if (match.endsWith('f')) return Number(this.numeric(arg)).toFixed(6);
-      return this.str(arg);
+
+      let out: string;
+      switch (conv) {
+        case 'd':
+          out = String(this.numeric(arg) | 0);
+          break;
+        case 'f':
+        case 'e':
+        case 'E':
+          out = Number(this.numeric(arg)).toFixed(prec === undefined ? 6 : Number(prec));
+          break;
+        case 'x':
+          out = (this.numeric(arg) | 0).toString(16);
+          break;
+        case 'X':
+          out = (this.numeric(arg) | 0).toString(16).toUpperCase();
+          break;
+        case 'c':
+          out = arg.t === 'char' ? arg.v : String.fromCharCode(this.numeric(arg));
+          break;
+        case 'b':
+          out = String(arg.t === 'bool' ? arg.v : arg.t !== 'null');
+          break;
+        default:
+          out = this.str(arg);
+      }
+
+      const w = width ? Number(width) : 0;
+      if (out.length < w) {
+        const pad = flag === '0' ? '0' : ' ';
+        const fill = pad.repeat(w - out.length);
+        out = flag === '-' ? out + fill : fill + out;
+      }
+      return out;
     });
   }
 
   private staticCall(className: string, name: string, args: Val[]): Val {
     const line = this.top()?.line ?? 0;
 
+    // enum helpers: values() and valueOf()
+    const enumCls = this.classMap.get(className);
+    if (enumCls?.kind === 'enum') {
+      const names = enumCls.constants ?? [];
+      if (name === 'values') {
+        return {
+          t: 'ref',
+          id: this.alloc({
+            kind: 'array',
+            elemType: className,
+            cells: names.map((constant, ordinal) => ({ t: 'enum' as const, type: className, name: constant, ordinal })),
+            dims: [names.length],
+          }).id,
+        };
+      }
+      if (name === 'valueOf') {
+        const wanted = this.str(args[0] ?? NULLV);
+        const at = names.indexOf(wanted);
+        if (at < 0) throw new JavaException('IllegalArgumentException', `No enum constant ${className}.${wanted}`);
+        return { t: 'enum', type: className, name: wanted, ordinal: at };
+      }
+    }
+
     switch (`${className}.${name}`) {
+      case 'String.format':
+        return STR(this.printf(this.str(args[0] ?? NULLV), args.slice(1)));
+      case 'Map.entry':
+        return { t: 'ref', id: this.alloc({ kind: 'object', className: 'Map.Entry', fields: [{ name: 'key', value: args[0] ?? NULLV }, { name: 'value', value: args[1] ?? NULLV }] }).id };
+      case 'Double.parseDouble':
+      case 'Float.parseFloat': {
+        const text = this.str(args[0] ?? NULLV).trim();
+        const value = Number(text);
+        if (Number.isNaN(value)) throw new JavaException('NumberFormatException', `For input string: "${text}"`);
+        return DBL(value);
+      }
+      case 'Integer.bitCount':
+        return INT((this.num(args[0]) >>> 0).toString(2).replace(/0/g, '').length);
+      case 'Integer.toBinaryString':
+        return STR((this.num(args[0]) >>> 0).toString(2));
+      case 'Integer.toHexString':
+        return STR((this.num(args[0]) >>> 0).toString(16));
+      case 'Integer.highestOneBit': {
+        const value = this.num(args[0]);
+        return INT(value > 0 ? 1 << (31 - Math.clz32(value)) : 0);
+      }
+      case 'Math.log':
+        return DBL(Math.log(this.numeric(args[0])));
+      case 'Math.log10':
+        return DBL(Math.log10(this.numeric(args[0])));
+      case 'Math.exp':
+        return DBL(Math.exp(this.numeric(args[0])));
+      case 'Math.sin':
+        return DBL(Math.sin(this.numeric(args[0])));
+      case 'Math.cos':
+        return DBL(Math.cos(this.numeric(args[0])));
+      case 'Math.tan':
+        return DBL(Math.tan(this.numeric(args[0])));
+      case 'Math.cbrt':
+        return DBL(Math.cbrt(this.numeric(args[0])));
+      case 'Math.floorDiv': {
+        const divisor = this.numeric(args[1]);
+        if (divisor === 0) throw new JavaException('ArithmeticException', '/ by zero');
+        return INT(Math.floor(this.numeric(args[0]) / divisor));
+      }
+      case 'Math.floorMod': {
+        const divisor = this.numeric(args[1]);
+        if (divisor === 0) throw new JavaException('ArithmeticException', '/ by zero');
+        return INT(((this.numeric(args[0]) % divisor) + divisor) % divisor);
+      }
+      case 'Arrays.binarySearch': {
+        const cells = this.arrayOf(args[0]).cells;
+        let lo = 0;
+        let hi = cells.length - 1;
+        let found = -1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const cmp = this.compareValues(cells[mid], args[1], args[2]);
+          if (cmp === 0) {
+            found = mid;
+            break;
+          }
+          if (cmp < 0) lo = mid + 1;
+          else hi = mid - 1;
+        }
+        return INT(found >= 0 ? found : -(lo + 1));
+      }
+      case 'Arrays.copyOfRange': {
+        const arr = this.arrayOf(args[0]);
+        const from = this.num(args[1]);
+        const to = Math.min(this.num(args[2]), arr.cells.length);
+        const cells = Array.from({ length: Math.max(0, to - from) }, (_, k) => arr.cells[from + k] ?? this.defaultFor({ name: arr.elemType, dims: 0 }));
+        return { t: 'ref', id: this.alloc({ kind: 'array', elemType: arr.elemType, cells, dims: [cells.length] }).id };
+      }
+      case 'Collections.singletonList':
+        return this.newList([args[0] ?? NULLV]);
+      case 'Collections.singleton':
+      case 'Collections.singletonSet':
+        return this.newList([args[0] ?? NULLV], 'Set');
+      case 'Collections.singletonMap':
+        return { t: 'ref', id: this.alloc({ kind: 'map', mapType: 'HashMap', entries: [{ key: args[0] ?? NULLV, value: args[1] ?? NULLV }] }).id };
+      case 'Collections.nCopies': {
+        const count = Math.max(0, this.num(args[0]));
+        return this.newList(Array.from({ length: count }, () => args[1] ?? NULLV));
+      }
+      case 'Collections.fill': {
+        const target = args[0];
+        if (target?.t === 'ref') {
+          const obj = this.heap.get(target.id);
+          if (obj?.kind === 'list') obj.items = obj.items.map(() => args[1] ?? NULLV);
+          else if (obj?.kind === 'array') obj.cells = obj.cells.map(() => args[1] ?? NULLV);
+        }
+        return NULLV;
+      }
+      case 'Collections.addAll': {
+        const list = this.listOf(args[0]);
+        const extra = args.slice(1).flatMap((arg) => (arg.t === 'ref' && this.elementsOf(arg).length ? this.elementsOf(arg) : [arg]));
+        for (const item of extra) list.items.push(item);
+        return BOOL(extra.length > 0);
+      }
+      case 'System.arraycopy': {
+        const source = this.elementsOf(args[0]);
+        const sourceAt = this.num(args[1]);
+        const count = this.num(args[4]);
+        const copied = Array.from({ length: count }, (_, k) => source[sourceAt + k] ?? NULLV);
+        const destination = args[2]?.t === 'ref' ? this.heap.get(args[2].id) : undefined;
+        const at = this.num(args[3]);
+        if (destination?.kind === 'array') copied.forEach((value, k) => (destination.cells[at + k] = value));
+        else if (destination?.kind === 'list') copied.forEach((value, k) => (destination.items[at + k] = value));
+        return NULLV;
+      }
       case 'Math.max':
         return args[0]?.t === 'double' || args[1]?.t === 'double'
           ? DBL(Math.max(this.numeric(args[0]), this.numeric(args[1])))
@@ -943,8 +1672,13 @@ class Machine {
         return INT(Math.round(this.numeric(args[0])));
       case 'Math.random':
         return DBL(Math.random());
-      case 'Integer.parseInt':
-        return INT(parseInt(this.str(args[0]), 10) || 0);
+      case 'Integer.parseInt': {
+        const radix = args[1] ? this.num(args[1]) : 10;
+        const text = this.str(args[0] ?? NULLV).trim();
+        const value = parseInt(text, radix);
+        if (Number.isNaN(value)) throw new JavaException('NumberFormatException', `For input string: "${text}"`);
+        return INT(value);
+      }
       case 'Integer.toString':
         return STR(String(this.numeric(args[0])));
       case 'String.valueOf':
@@ -963,13 +1697,174 @@ class Machine {
       }
       case 'Arrays.sort': {
         const arr = this.arrayOf(args[0]);
-        arr.cells.sort((x, y) => this.numeric(x) - this.numeric(y));
+        arr.cells.sort((x, y) => this.compareValues(x, y, args[1]));
         return NULLV;
       }
       case 'Collections.reverse': {
-        const obj = this.heap.get(args[0]?.t === 'ref' ? args[0].id : -1);
-        if (obj?.kind === 'list') obj.items.reverse();
+        const list = this.listOf(args[0]);
+        list.items.reverse();
         return NULLV;
+      }
+      case 'Collections.sort': {
+        const list = this.listOf(args[0]);
+        list.items.sort((a, b) => this.compareValues(a, b, args[1]));
+        return NULLV;
+      }
+      case 'Collections.max':
+      case 'Collections.min': {
+        const items = this.elementsOf(args[0]);
+        if (!items.length) throw new RuntimeError('NoSuchElementException: the collection is empty', line);
+        let best = items[0];
+        for (const item of items.slice(1)) {
+          const cmp = this.compareValues(item, best, args[1]);
+          if (name === 'max' ? cmp > 0 : cmp < 0) best = item;
+        }
+        return best;
+      }
+      case 'Collections.swap': {
+        const list = this.listOf(args[0]);
+        const i = this.num(args[1]);
+        const j = this.num(args[2]);
+        const temp = list.items[i];
+        list.items[i] = list.items[j];
+        list.items[j] = temp;
+        return NULLV;
+      }
+      case 'Collections.frequency':
+        return INT(this.elementsOf(args[0]).filter((item) => this.equals(item, args[1])).length);
+      case 'Collections.emptyList':
+      case 'Collections.emptySet':
+        return this.newList([]);
+      case 'Collections.unmodifiableList':
+        return args[0];
+      case 'Arrays.asList':
+      case 'Arrays.stream': {
+        if (className === 'Arrays' && name === 'stream') {
+          return { t: 'stream', items: [...this.arrayOf(args[0]).cells] };
+        }
+        const list = this.newList([...args]);
+        return list;
+      }
+      case 'List.of':
+      case 'Set.of': {
+        if (className === 'Set') {
+          const unique: Val[] = [];
+          for (const item of args) if (!unique.some((v) => this.equals(v, item))) unique.push(item);
+          return this.newList(unique, 'Set');
+        }
+        return this.newList([...args]);
+      }
+      case 'Map.of': {
+        const entries: { key: Val; value: Val }[] = [];
+        for (let i = 0; i + 1 < args.length; i += 2) entries.push({ key: args[i], value: args[i + 1] });
+        return { t: 'ref', id: this.alloc({ kind: 'map', mapType: 'Map', entries }).id };
+      }
+      case 'Stream.of':
+        return { t: 'stream', items: [...args] };
+      case 'IntStream.of':
+        return { t: 'stream', items: [...args] };
+      case 'IntStream.range':
+      case 'IntStream.rangeClosed': {
+        const from = this.num(args[0]);
+        const to = this.num(args[1]);
+        const items: Val[] = [];
+        for (let i = from; name === 'range' ? i < to : i <= to; i++) items.push(INT(i));
+        return { t: 'stream', items };
+      }
+      case 'Comparator.comparing':
+      case 'Comparator.comparingInt':
+      case 'Comparator.comparingLong':
+      case 'Comparator.comparingDouble':
+        return { t: 'cmpr', steps: [{ fn: args[0], desc: false }] };
+      case 'Comparator.reverseOrder':
+      case 'Collections.reverseOrder':
+        return { t: 'cmpr', steps: [{ fn: null, desc: true }] };
+      case 'Comparator.naturalOrder':
+        return { t: 'cmpr', steps: [] };
+      case 'Map.Entry.comparingByKey':
+        return { t: 'cmpr', steps: [{ fn: { t: 'fn', id: this.builtinFn({ kind: 'entry', field: 'key' }) }, desc: false }] };
+      case 'Map.Entry.comparingByValue':
+        return { t: 'cmpr', steps: [{ fn: { t: 'fn', id: this.builtinFn({ kind: 'entry', field: 'value' }) }, desc: false }] };
+      case 'Collectors.toList':
+      case 'Collectors.toUnmodifiableList':
+        return { t: 'collector', kind: 'list' };
+      case 'Collectors.toSet':
+      case 'Collectors.toUnmodifiableSet':
+        return { t: 'collector', kind: 'set' };
+      case 'Collectors.counting':
+        return { t: 'collector', kind: 'count' };
+      case 'Collectors.joining':
+        return {
+          t: 'collector',
+          kind: 'join',
+          sep: args[0] ? this.str(args[0]) : '',
+          prefix: args[1] ? this.str(args[1]) : '',
+          suffix: args[2] ? this.str(args[2]) : '',
+        };
+      case 'Collectors.groupingBy':
+        return { t: 'collector', kind: 'group', fn: args[0], downstream: args[1] };
+      case 'Collectors.toMap':
+        return { t: 'collector', kind: 'toMap', fn: args[0], fn2: args[1] };
+      case 'Collectors.partitioningBy':
+        return { t: 'collector', kind: 'partitionBy', fn: args[0], downstream: args[1] };
+      case 'Collectors.summingInt':
+      case 'Collectors.summingDouble':
+        return { t: 'collector', kind: 'sum', fn: args[0] };
+      case 'Collectors.averagingInt':
+      case 'Collectors.averagingDouble':
+        return { t: 'collector', kind: 'avg', fn: args[0] };
+      case 'Collectors.mapping':
+        return { t: 'collector', kind: 'mapping', fn: args[0], downstream: args[1] };
+      case 'Collectors.toUnmodifiableMap':
+        return { t: 'collector', kind: 'toMap', fn: args[0], fn2: args[1] };
+      case 'Integer.compare':
+      case 'Double.compare':
+      case 'Long.compare':
+        return INT(this.numeric(args[0]) < this.numeric(args[1]) ? -1 : this.numeric(args[0]) > this.numeric(args[1]) ? 1 : 0);
+      case 'Integer.sum':
+        return INT(this.num(args[0]) + this.num(args[1]));
+      case 'Integer.max':
+        return INT(Math.max(this.num(args[0]), this.num(args[1])));
+      case 'Integer.min':
+        return INT(Math.min(this.num(args[0]), this.num(args[1])));
+      case 'Integer.valueOf':
+      case 'Long.valueOf':
+      case 'Double.valueOf':
+      case 'Objects.requireNonNull':
+        return args[0] ?? NULLV;
+      case 'Objects.equals':
+        return BOOL(this.equals(args[0] ?? NULLV, args[1] ?? NULLV));
+      case 'Long.parseLong': {
+        const text = this.str(args[0] ?? NULLV).trim();
+        const value = parseInt(text, 10);
+        if (Number.isNaN(value)) throw new JavaException('NumberFormatException', `For input string: "${text}"`);
+        return LONG(value);
+      }
+      case 'String.join': {
+        const sep = this.str(args[0]);
+        const parts: string[] = [];
+        for (const arg of args.slice(1)) {
+          if (arg.t === 'ref') parts.push(...this.elementsOf(arg).map((item) => this.str(item)));
+          else parts.push(this.str(arg));
+        }
+        return STR(parts.join(sep));
+      }
+      case 'Arrays.fill': {
+        const arr = this.arrayOf(args[0]);
+        arr.cells = arr.cells.map(() => args[1]);
+        return NULLV;
+      }
+      case 'Arrays.copyOf': {
+        const arr = this.arrayOf(args[0]);
+        const size = this.num(args[1]);
+        const cells = Array.from({ length: size }, (_, i) => arr.cells[i] ?? INT(0));
+        return { t: 'ref', id: this.alloc({ kind: 'array', elemType: arr.elemType, cells, dims: [size] }).id };
+      }
+      case 'Arrays.equals':
+      case 'Arrays.deepEquals': {
+        const a = this.arrayOf(args[0]).cells;
+        const b = this.arrayOf(args[1]).cells;
+        return BOOL(a.length === b.length && a.every((cell, i) => this.equals(cell, b[i])));
       }
     }
 
@@ -977,6 +1872,26 @@ class Machine {
     if (cls) {
       const method = cls.methods.find((m) => m.name === name && !m.isCtor && m.params.length === args.length);
       if (method) return this.invoke(cls, method, method.isStatic ? null : args[0] ?? null, args);
+
+      // `Person::name` in a stream maps an instance to instance.name()
+      const receiver = args[0];
+      if (receiver?.t === 'ref') {
+        const target = this.heap.get(receiver.id);
+        if (target?.kind === 'object') {
+          const found = this.findMethod(this.classMap.get(target.className), name, args.length - 1);
+          if (found) return this.invoke(found.cls, found.method, receiver, args.slice(1));
+        }
+      }
+    }
+
+    // `String::length`, `List::size` — an unbound instance method reference:
+    // the first argument is the receiver
+    if (args.length > 0) {
+      try {
+        return this.callOn(args[0], name, args.slice(1));
+      } catch {
+        // fall through to the error below
+      }
     }
 
     throw new RuntimeError(`Unsupported call ${className}.${name}()`, line);
@@ -1008,35 +1923,619 @@ class Machine {
         return STR(text.trim());
       case 'toString':
         return STR(text);
-      case 'split':
-        return STR(text);
+      case 'split': {
+        const parts = text.split(this.str(args[0]));
+        return { t: 'ref', id: this.alloc({ kind: 'array', elemType: 'String', cells: parts.map((part) => STR(part)), dims: [parts.length] }).id };
+      }
+      case 'startsWith':
+        return BOOL(text.startsWith(this.str(args[0])));
+      case 'endsWith':
+        return BOOL(text.endsWith(this.str(args[0])));
+      case 'replace':
+        return STR(text.split(this.str(args[0])).join(this.str(args[1])));
+      case 'replaceAll':
+        return STR(text.split(this.str(args[0])).join(this.str(args[1])));
+      case 'lastIndexOf':
+        return INT(text.lastIndexOf(this.str(args[0])));
+      case 'compareTo':
+        return INT(text < this.str(args[0]) ? -1 : text > this.str(args[0]) ? 1 : 0);
+      case 'concat':
+        return STR(text + this.str(args[0]));
+      case 'repeat':
+        return STR(text.repeat(Math.max(0, this.num(args[0]))));
+      case 'isBlank':
+        return BOOL(text.trim().length === 0);
+      case 'matches': {
+        try {
+          return BOOL(new RegExp(`^(?:${this.str(args[0])})$`).test(text));
+        } catch {
+          throw new RuntimeError(`bad regular expression ${this.str(args[0])}`, this.top()?.line ?? 0);
+        }
+      }
+      case 'toCharArray':
+        return {
+          t: 'ref',
+          id: this.alloc({ kind: 'array', elemType: 'char', cells: [...text].map((ch) => CHR(ch)), dims: [text.length] }).id,
+        };
       default:
         throw new RuntimeError(`String.${name}() is not supported`, this.top()?.line ?? 0);
+    }
+  }
+
+  /* ---------- lambdas, method references and streams ---------- */
+
+  /** run a lambda or method reference; params are bound in the caller's frame */
+  private builtinFn(spec: FnSpec): number {
+    const id = ++this.fnSeq;
+    this.fns.set(id, spec);
+    return id;
+  }
+
+  private apply(fn: Val, args: Val[]): Val {
+    const line = this.top()?.line ?? 0;
+    if (fn.t !== 'fn') throw new RuntimeError(`${this.text(fn)} is not a function`, line);
+    const spec = this.fns.get(fn.id);
+    if (!spec) throw new RuntimeError('lost a function reference', line);
+    if (spec.kind === 'ref') return this.callOn(spec.target, spec.name, args);
+    if (spec.kind === 'entry') {
+      const target = args[0];
+      if (target?.t === 'ref') {
+        const obj = this.heap.get(target.id);
+        if (obj?.kind === 'object') {
+          return obj.fields.find((f) => f.name === spec.field)?.value ?? NULLV;
+        }
+      }
+      return NULLV;
+    }
+
+    const frame = this.top()!;
+    const saved = new Map<string, VarSlot | undefined>();
+    spec.params.forEach((name, i) => {
+      saved.set(name, frame.vars.get(name));
+      const value = args[i] ?? NULLV;
+      frame.vars.set(name, { type: this.inferType(value), value });
+    });
+    const restoreLine = frame.line;
+    frame.line = spec.line;
+    try {
+      if (spec.block) {
+        try {
+          this.exec(spec.body as Stmt);
+        } catch (e) {
+          if (e instanceof ReturnSignal) return e.value;
+          throw e;
+        }
+        return NULLV;
+      }
+      return this.eval(spec.body as Expr);
+    } finally {
+      frame.line = restoreLine;
+      for (const [name, slot] of saved) {
+        if (slot) frame.vars.set(name, slot);
+        else frame.vars.delete(name);
+      }
+    }
+  }
+
+  private compareValues(a: Val, b: Val, cmp?: Val): number {
+    if (cmp?.t === 'cmpr') {
+      for (const step of cmp.steps) {
+        const result = step.fn
+          ? this.compareValues(this.apply(step.fn, [a]), this.apply(step.fn, [b]))
+          : this.compareValues(a, b);
+        if (result !== 0) return step.desc ? -result : result;
+      }
+      return 0;
+    }
+    if (cmp) return this.num(this.apply(cmp, [a, b]));
+    if (a.t === 'str' || b.t === 'str') return this.str(a) < this.str(b) ? -1 : this.str(a) > this.str(b) ? 1 : 0;
+    return this.numeric(a) - this.numeric(b);
+  }
+
+  private listOf(v: Val): Extract<HeapObj, { kind: 'list' }> {
+    if (v.t === 'ref') {
+      const obj = this.heap.get(v.id);
+      if (obj?.kind === 'list') return obj;
+    }
+    throw new RuntimeError('Expected a list here', this.top()?.line ?? 0);
+  }
+
+  /** cells of an array or items of a list, for the stream sources */
+  private elementsOf(v: Val): Val[] {
+    if (v.t !== 'ref') return [];
+    const obj = this.heap.get(v.id);
+    if (!obj) return [];
+    if (obj.kind === 'array') return obj.cells;
+    if (obj.kind === 'list') return obj.items;
+    if (obj.kind === 'map') return obj.entries.map((e) => e.key);
+    return [];
+  }
+
+  private newList(items: Val[], elemType = 'Object'): Val {
+    return { t: 'ref', id: this.alloc({ kind: 'list', elemType, items }).id };
+  }
+
+  private fromCollector(c: Extract<Val, { t: 'collector' }>, items: Val[]): Val {
+    const mapOf = (pairs: { key: Val; value: Val }[]) => ({
+      t: 'ref' as const,
+      id: this.alloc({ kind: 'map', mapType: 'HashMap', entries: pairs }).id,
+    });
+    const mapped = (item: Val, fn?: Val) => (fn ? this.apply(fn, [item]) : item);
+
+    switch (c.kind) {
+      case 'count':
+        return INT(items.length);
+      case 'join':
+        return STR((c.prefix ?? '') + items.map((v) => this.str(v)).join(c.sep ?? '') + (c.suffix ?? ''));
+      case 'mapping': {
+        const transformed = items.map((item) => mapped(item, c.fn));
+        return c.downstream && c.downstream.t === 'collector' ? this.fromCollector(c.downstream, transformed) : this.newList(transformed);
+      }
+      case 'sum': {
+        let total = 0;
+        let fractional = false;
+        for (const item of items) {
+          const value = mapped(item, c.fn);
+          if (value.t === 'double') fractional = true;
+          total += this.numeric(value);
+        }
+        return fractional ? DBL(total) : INT(total);
+      }
+      case 'avg': {
+        if (!items.length) return { t: 'opt', empty: true, value: DBL(0) };
+        const total = items.reduce((acc, item) => acc + this.numeric(mapped(item, c.fn)), 0);
+        return { t: 'opt', empty: false, value: DBL(total / items.length) };
+      }
+      case 'group': {
+        const groups = new Map<string, { key: Val; items: Val[] }>();
+        for (const item of items) {
+          const key = mapped(item, c.fn);
+          const id = `${key.t}:${this.str(key)}`;
+          const slot = groups.get(id) ?? { key, items: [] };
+          slot.items.push(item);
+          groups.set(id, slot);
+        }
+        return mapOf(
+          [...groups.values()].map((group) => ({
+            key: group.key,
+            value: c.downstream && c.downstream.t === 'collector' ? this.fromCollector(c.downstream, group.items) : this.newList(group.items),
+          }))
+        );
+      }
+      case 'toMap': {
+        const entries: { key: Val; value: Val }[] = [];
+        for (const item of items) {
+          const key = mapped(item, c.fn);
+          const value = mapped(item, c.fn2);
+          const at = entries.findIndex((entry) => this.equals(entry.key, key));
+          if (at >= 0) entries[at].value = value;
+          else entries.push({ key, value });
+        }
+        return mapOf(entries);
+      }
+      case 'partitionBy': {
+        const yes: Val[] = [];
+        const no: Val[] = [];
+        for (const item of items) (this.truthy(mapped(item, c.fn)) ? yes : no).push(item);
+        return mapOf([
+          { key: BOOL(true), value: this.newList(yes) },
+          { key: BOOL(false), value: this.newList(no) },
+        ]);
+      }
+      case 'set': {
+        const unique: Val[] = [];
+        for (const item of items) if (!unique.some((v) => this.equals(v, item))) unique.push(item);
+        return this.newList(unique, 'Set');
+      }
+      default:
+        return this.newList([...items]);
+    }
+  }
+
+  /** StringBuilder: mutable text, every chainable method returns the builder */
+  private builderCall(obj: Extract<HeapObj, { kind: 'builder' }>, name: string, args: Val[]): Val {
+    const line = this.top()?.line ?? 0;
+    const self: Val = { t: 'ref', id: obj.id };
+    switch (name) {
+      case 'append':
+        obj.text += this.str(args[0] ?? NULLV);
+        return self;
+      case 'insert': {
+        const at = Math.max(0, this.num(args[0]));
+        obj.text = obj.text.slice(0, at) + this.str(args[1] ?? NULLV) + obj.text.slice(at);
+        return self;
+      }
+      case 'delete': {
+        const from = Math.max(0, this.num(args[0]));
+        const to = Math.max(from, this.num(args[1]));
+        obj.text = obj.text.slice(0, from) + obj.text.slice(to);
+        return self;
+      }
+      case 'deleteCharAt': {
+        const at = this.num(args[0]);
+        obj.text = obj.text.slice(0, at) + obj.text.slice(at + 1);
+        return self;
+      }
+      case 'replace': {
+        const from = Math.max(0, this.num(args[0]));
+        const to = Math.max(from, this.num(args[1]));
+        obj.text = obj.text.slice(0, from) + this.str(args[2] ?? NULLV) + obj.text.slice(to);
+        return self;
+      }
+      case 'reverse':
+        obj.text = [...obj.text].reverse().join('');
+        return self;
+      case 'setCharAt': {
+        const at = this.num(args[0]);
+        obj.text = obj.text.slice(0, at) + this.str(args[1] ?? NULLV) + obj.text.slice(at + 1);
+        return self;
+      }
+      case 'setLength':
+        obj.text = obj.text.slice(0, Math.max(0, this.num(args[0])));
+        return NULLV;
+      case 'toString':
+        return STR(obj.text);
+      case 'length':
+        return INT(obj.text.length);
+      case 'charAt':
+        return CHR(obj.text[this.num(args[0])] ?? '');
+      case 'indexOf':
+        return INT(obj.text.indexOf(this.str(args[0])));
+      case 'isEmpty':
+        return BOOL(obj.text.length === 0);
+      default:
+        throw new RuntimeError(`StringBuilder.${name}() is not supported`, line);
+    }
+  }
+
+  private streamCall(items: Val[], name: string, args: Val[]): Val {
+    const line = this.top()?.line ?? 0;
+    switch (name) {
+      case 'filter': {
+        const kept = items.filter((item) => this.truthy(this.apply(args[0], [item])));
+        this.snap('stmt', `filter → kept ${kept.length} of ${items.length}`);
+        return { t: 'stream', items: kept };
+      }
+      case 'map':
+      case 'mapToInt':
+      case 'mapToLong':
+      case 'mapToDouble':
+      case 'mapToObj': {
+        const mapped = items.map((item) => this.apply(args[0], [item]));
+        this.snap('stmt', `map → ${mapped.map((v) => this.text(v)).join(', ') || '(empty)'}`);
+        return { t: 'stream', items: mapped };
+      }
+      case 'flatMap': {
+        const out: Val[] = [];
+        for (const item of items) {
+          const mapped = this.apply(args[0], [item]);
+          if (mapped.t === 'stream') out.push(...mapped.items);
+          else out.push(...this.elementsOf(mapped));
+        }
+        this.snap('stmt', `flatMap → ${out.length} items`);
+        return { t: 'stream', items: out };
+      }
+      case 'boxed':
+      case 'asLongStream':
+      case 'asDoubleStream':
+      case 'parallel':
+      case 'sequential':
+      case 'unordered':
+        return { t: 'stream', items };
+      case 'sorted': {
+        const out = [...items].sort((a, b) => this.compareValues(a, b, args[0]));
+        this.snap('stmt', `sorted → [${out.map((v) => this.str(v)).join(', ')}]`);
+        return { t: 'stream', items: out };
+      }
+      case 'distinct': {
+        const unique: Val[] = [];
+        for (const item of items) if (!unique.some((v) => this.equals(v, item))) unique.push(item);
+        return { t: 'stream', items: unique };
+      }
+      case 'limit':
+        return { t: 'stream', items: items.slice(0, Math.max(0, this.num(args[0]))) };
+      case 'skip':
+        return { t: 'stream', items: items.slice(Math.max(0, this.num(args[0]))) };
+      case 'peek': {
+        for (const item of items) {
+          this.apply(args[0], [item]);
+          this.snap('stmt', `peek ${this.text(item)}`);
+        }
+        return { t: 'stream', items };
+      }
+      case 'count':
+        return INT(items.length);
+      case 'sum': {
+        let total = 0;
+        let dbl = false;
+        for (const item of items) {
+          if (item.t === 'double') dbl = true;
+          total += this.numeric(item);
+        }
+        this.snap('stmt', `sum → ${total}`);
+        return dbl ? DBL(total) : INT(total);
+      }
+      case 'average': {
+        if (!items.length) return { t: 'opt', empty: true, value: DBL(0) };
+        const total = items.reduce((acc, item) => acc + this.numeric(item), 0);
+        return { t: 'opt', empty: false, value: DBL(total / items.length) };
+      }
+      case 'max':
+      case 'min': {
+        if (!items.length) return { t: 'opt', empty: true, value: NULLV };
+        let best = items[0];
+        for (const item of items.slice(1)) {
+          const cmp = this.compareValues(item, best, args[0]);
+          if (name === 'max' ? cmp > 0 : cmp < 0) best = item;
+        }
+        return { t: 'opt', empty: false, value: best };
+      }
+      case 'findFirst':
+        return items.length ? { t: 'opt', empty: false, value: items[0] } : { t: 'opt', empty: true, value: NULLV };
+      case 'anyMatch':
+        return BOOL(items.some((item) => this.truthy(this.apply(args[0], [item]))));
+      case 'allMatch':
+        return BOOL(items.every((item) => this.truthy(this.apply(args[0], [item]))));
+      case 'noneMatch':
+        return BOOL(!items.some((item) => this.truthy(this.apply(args[0], [item]))));
+      case 'forEach': {
+        for (const item of items) {
+          this.apply(args[0], [item]);
+          this.snap('stmt', `forEach ${this.text(item)}`);
+        }
+        return NULLV;
+      }
+      case 'reduce': {
+        if (args.length >= 2) {
+          let acc = args[0];
+          for (const item of items) acc = this.apply(args[1], [acc, item]);
+          return acc;
+        }
+        if (!items.length) return { t: 'opt', empty: true, value: NULLV };
+        let acc = items[0];
+        for (const item of items.slice(1)) acc = this.apply(args[0], [acc, item]);
+        return { t: 'opt', empty: false, value: acc };
+      }
+      case 'toArray': {
+        const first = items[0];
+        const elemType = !first ? 'Object' : first.t === 'str' ? 'String' : first.t === 'ref' ? 'Object' : first.t;
+        return { t: 'ref', id: this.alloc({ kind: 'array', elemType, cells: [...items], dims: [items.length] }).id };
+      }
+      case 'toList':
+        return this.newList([...items]);
+      case 'collect': {
+        const collector = args[0];
+        if (!collector || collector.t !== 'collector') {
+          throw new RuntimeError('collect() needs a Collectors helper, e.g. Collectors.toList()', line);
+        }
+        return this.fromCollector(collector, items);
+      }
+      default:
+        throw new RuntimeError(`Stream.${name}() is not supported`, line);
+    }
+  }
+
+  private optCall(opt: Extract<Val, { t: 'opt' }>, name: string, args: Val[]): Val {
+    const line = this.top()?.line ?? 0;
+    switch (name) {
+      case 'isPresent':
+        return BOOL(!opt.empty);
+      case 'isEmpty':
+        return BOOL(opt.empty);
+      case 'get':
+      case 'getAsInt':
+      case 'getAsDouble':
+      case 'getAsLong':
+      case 'orElseThrow':
+        if (opt.empty) throw new RuntimeError('NoSuchElementException: the Optional is empty', line);
+        return opt.value;
+      case 'orElse':
+        return opt.empty ? (args[0] ?? NULLV) : opt.value;
+      case 'orElseGet':
+        return opt.empty ? this.apply(args[0], []) : opt.value;
+      case 'ifPresent':
+        if (!opt.empty) this.apply(args[0], [opt.value]);
+        return NULLV;
+      default:
+        throw new RuntimeError(`Optional.${name}() is not supported`, line);
+    }
+  }
+
+  private mapCall(obj: Extract<HeapObj, { kind: 'map' }>, name: string, args: Val[]): Val {
+    const line = this.top()?.line ?? 0;
+    const keyText = (key: Val) => this.str(key);
+    const find = (key: Val) => obj.entries.findIndex((entry) => this.equals(entry.key, key));
+
+    switch (name) {
+      case 'put':
+      case 'putIfAbsent': {
+        const at = find(args[0]);
+        if (at >= 0) {
+          if (name === 'putIfAbsent') return obj.entries[at].value;
+          const prev = obj.entries[at].value;
+          obj.entries[at].value = args[1];
+          this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(args[1]), prev: this.toTrace(prev) });
+          return prev;
+        }
+        obj.entries.push({ key: args[0], value: args[1] });
+        if (obj.mapType === 'TreeMap') obj.entries.sort((a, b) => this.compareValues(a.key, b.key, obj.cmp));
+        this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(args[1]) });
+        return NULLV;
+      }
+      case 'get': {
+        const at = find(args[0]);
+        return at >= 0 ? obj.entries[at].value : NULLV;
+      }
+      case 'getOrDefault': {
+        const at = find(args[0]);
+        return at >= 0 ? obj.entries[at].value : (args[1] ?? NULLV);
+      }
+      case 'containsKey':
+        return BOOL(find(args[0]) >= 0);
+      case 'containsValue':
+        return BOOL(obj.entries.some((entry) => this.equals(entry.value, args[0])));
+      case 'size':
+        return INT(obj.entries.length);
+      case 'isEmpty':
+        return BOOL(obj.entries.length === 0);
+      case 'remove': {
+        const at = find(args[0]);
+        if (at < 0) return NULLV;
+        return obj.entries.splice(at, 1)[0].value;
+      }
+      case 'clear':
+        obj.entries.length = 0;
+        return NULLV;
+      case 'keySet':
+        return this.newList(obj.entries.map((entry) => entry.key));
+      case 'values':
+        return this.newList(obj.entries.map((entry) => entry.value));
+      case 'forEach': {
+        for (const entry of obj.entries) {
+          this.apply(args[0], [entry.key, entry.value]);
+          this.snap('stmt', `map.forEach ${keyText(entry.key)} → ${this.text(entry.value)}`);
+        }
+        return NULLV;
+      }
+      case 'computeIfAbsent': {
+        const at = find(args[0]);
+        if (at >= 0) return obj.entries[at].value;
+        const created = this.apply(args[1], [args[0]]);
+        obj.entries.push({ key: args[0], value: created });
+        this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(created) });
+        return created;
+      }
+      case 'merge': {
+        const at = find(args[0]);
+        if (at < 0) {
+          obj.entries.push({ key: args[0], value: args[1] });
+          this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(args[1]) });
+          return args[1];
+        }
+        const merged = this.apply(args[2], [obj.entries[at].value, args[1]]);
+        obj.entries[at].value = merged;
+        this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(merged) });
+        return merged;
+      }
+      case 'compute':
+      case 'computeIfPresent': {
+        const at = find(args[0]);
+        if (at < 0 && name === 'computeIfPresent') return NULLV;
+        const prev = at >= 0 ? obj.entries[at].value : NULLV;
+        const next = this.apply(args[1], [args[0], prev]);
+        if (next.t === 'null') {
+          if (at >= 0) obj.entries.splice(at, 1);
+          return NULLV;
+        }
+        if (at >= 0) obj.entries[at].value = next;
+        else obj.entries.push({ key: args[0], value: next });
+        this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(next), prev: this.toTrace(prev) });
+        return next;
+      }
+      case 'replace': {
+        const at = find(args[0]);
+        if (at < 0) return args.length > 2 ? BOOL(false) : NULLV;
+        if (args.length > 2) {
+          if (!this.equals(obj.entries[at].value, args[1])) return BOOL(false);
+          obj.entries[at].value = args[2];
+          return BOOL(true);
+        }
+        const previous = obj.entries[at].value;
+        obj.entries[at].value = args[1];
+        this.effects.push({ to: { obj: obj.id, field: keyText(args[0]) }, value: this.toTrace(args[1]), prev: this.toTrace(previous) });
+        return previous;
+      }
+      case 'putAll': {
+        const other = args[0]?.t === 'ref' ? this.heap.get(args[0].id) : undefined;
+        if (other?.kind === 'map') {
+          for (const entry of other.entries) {
+            const at = find(entry.key);
+            if (at >= 0) obj.entries[at].value = entry.value;
+            else obj.entries.push({ key: entry.key, value: entry.value });
+          }
+        }
+        return NULLV;
+      }
+      case 'entrySet':
+        return this.newList(
+          obj.entries.map((entry) => ({
+            t: 'ref' as const,
+            id: this.alloc({ kind: 'object', className: 'Map.Entry', fields: [{ name: 'key', value: entry.key }, { name: 'value', value: entry.value }] }).id,
+          })),
+          'Map.Entry'
+        );
+      case 'toString':
+        return STR(`{${obj.entries.map((entry) => `${this.str(entry.key)}=${this.str(entry.value)}`).join(', ')}}`);
+      default:
+        throw new RuntimeError(`Map.${name}() is not supported`, line);
     }
   }
 
   private listCall(obj: Extract<HeapObj, { kind: 'list' }>, name: string, args: Val[]): Val {
     const line = this.top()?.line ?? 0;
     switch (name) {
-      case 'add': {
+      case 'iterator':
+        return { t: 'ref', id: this.alloc({ kind: 'iterator', at: 0, of: [...obj.items] }).id };
+      case 'push':
+      case 'offer':
+      case 'addLast': {
+        obj.items.push(args[0] ?? NULLV);
+        this.effects.push({ to: { obj: obj.id, index: obj.items.length - 1 }, value: this.toTrace(args[0] ?? NULLV) });
+        return name === 'offer' ? BOOL(true) : NULLV;
+      }
+      case 'pop': {
+        if (!obj.items.length) throw new JavaException('NoSuchElementException', 'the collection is empty');
+        return obj.items.pop()!;
+      }
+      case 'poll':
+      case 'pollFirst': {
+        if (!obj.items.length) return NULLV;
+        return obj.items.shift()!;
+      }
+      case 'pollLast': {
+        if (!obj.items.length) return NULLV;
+        return obj.items.pop()!;
+      }
+      case 'peek':
+      case 'peekFirst':
+      case 'element': {
+        if (!obj.items.length) {
+          if (name === 'element') throw new JavaException('NoSuchElementException', 'the collection is empty');
+          return NULLV;
+        }
+        return obj.elemType === 'Stack' ? obj.items[obj.items.length - 1] : obj.items[0];
+      }
+      case 'peekLast':
+        return obj.items.length ? obj.items[obj.items.length - 1] : NULLV;
+      case 'add':
+      case 'addFirst': {
+        if (name === 'addFirst') {
+          obj.items.unshift(args[0] ?? NULLV);
+          return NULLV;
+        }
         if (args.length === 2) {
           const index = this.num(args[0]);
           obj.items.splice(index, 0, args[1]);
           this.effects.push({ to: { obj: obj.id, index }, value: this.toTrace(args[1]) });
         } else {
+          // a Set keeps one copy of each value
+          const uniqueSet = obj.elemType === 'Set' || obj.elemType === 'TreeSet';
+          if (uniqueSet && obj.items.some((item) => this.equals(item, args[0]))) return BOOL(false);
           obj.items.push(args[0]);
+          if (obj.elemType === 'PriorityQueue' || obj.elemType === 'TreeSet') obj.items.sort((a, b) => this.compareValues(a, b, obj.cmp));
           this.effects.push({ to: { obj: obj.id, index: obj.items.length - 1 }, value: this.toTrace(args[0]) });
+          return BOOL(true);
         }
         return NULLV;
       }
       case 'get': {
         const index = this.num(args[0]);
-        if (index < 0 || index >= obj.items.length) throw new RuntimeError(`IndexOutOfBoundsException: ${index}`, line);
+        if (index < 0 || index >= obj.items.length) throw new JavaException('IndexOutOfBoundsException', `Index ${index} out of bounds for length ${obj.items.length}`);
         return obj.items[index];
       }
       case 'set': {
         const index = this.num(args[0]);
-        if (index < 0 || index >= obj.items.length) throw new RuntimeError(`IndexOutOfBoundsException: ${index}`, line);
+        if (index < 0 || index >= obj.items.length) throw new JavaException('IndexOutOfBoundsException', `Index ${index} out of bounds for length ${obj.items.length}`);
         const prev = obj.items[index];
         obj.items[index] = args[1];
         this.effects.push({ to: { obj: obj.id, index }, value: this.toTrace(args[1]), prev: this.toTrace(prev) });
@@ -1046,7 +2545,7 @@ class Machine {
         return INT(obj.items.length);
       case 'remove': {
         const index = this.num(args[0]);
-        if (index < 0 || index >= obj.items.length) throw new RuntimeError(`IndexOutOfBoundsException: ${index}`, line);
+        if (index < 0 || index >= obj.items.length) throw new JavaException('IndexOutOfBoundsException', `Index ${index} out of bounds for length ${obj.items.length}`);
         const removed = obj.items.splice(index, 1)[0];
         return removed;
       }
@@ -1059,6 +2558,39 @@ class Machine {
         return NULLV;
       case 'toString':
         return STR(`[${obj.items.map((i) => this.str(i)).join(', ')}]`);
+      case 'stream':
+        return { t: 'stream', items: [...obj.items] };
+      case 'forEach': {
+        for (const item of [...obj.items]) {
+          this.apply(args[0], [item]);
+          this.snap('stmt', `forEach ${this.text(item)}`);
+        }
+        return NULLV;
+      }
+      case 'sort': {
+        const before = obj.items.map((i) => this.str(i)).join(', ');
+        obj.items.sort((a, b) => this.compareValues(a, b, args[0]));
+        this.snap('stmt', `sort [${before}] → [${obj.items.map((i) => this.str(i)).join(', ')}]`);
+        return NULLV;
+      }
+      case 'indexOf': {
+        const at = obj.items.findIndex((item) => this.equals(item, args[0]));
+        return INT(at);
+      }
+      case 'addAll': {
+        const extra = this.elementsOf(args[0]);
+        for (const item of extra) obj.items.push(item);
+        return BOOL(extra.length > 0);
+      }
+      case 'removeIf': {
+        const keep = obj.items.filter((item) => !this.truthy(this.apply(args[0], [item])));
+        const removed = obj.items.length - keep.length;
+        obj.items.length = 0;
+        obj.items.push(...keep);
+        return BOOL(removed > 0);
+      }
+      case 'equals':
+        return BOOL(this.str(args[0]) === this.str({ t: 'ref', id: obj.id }));
       default:
         throw new RuntimeError(`ArrayList.${name}() is not supported`, line);
     }

@@ -2,7 +2,7 @@ import { Html } from '@react-three/drei';
 import type { ControlsProps, Mark, Program, Selected, Step, TopicModule } from './types';
 import { fitScale, lineCount, lineOf, parseNums } from './util';
 import { Label } from '../three/Label';
-import { AnimatedStage, useStableIds, type TileSpec } from '../three/anim';
+import { AnimatedStage, useStableIds, type EdgeSpec, type TileSpec } from '../three/anim';
 
 type Algo = 'bubble' | 'selection' | 'insertion' | 'linear' | 'binary';
 type Params = { raw: string; algo: Algo; target: string };
@@ -309,6 +309,17 @@ function View({ state, onInspect, animMs }: ViewProps) {
   const scale = fitScale(Math.max(n, 1) * gap + 1, 3.4);
   const ids = useStableIds(state.values);
 
+  // thin rails between neighbouring slots: the array reads as one sequence
+  const rails: EdgeSpec[] = ids.slice(1).map((id, i) => ({
+    id: `rail-${i}`,
+    a: ids[i],
+    b: id,
+    soft: true,
+    radius: 0.016,
+    trimA: 0.57,
+    trimB: 0.57,
+  }));
+
   const tiles: TileSpec[] = state.values.map((value, i) => ({
     id: ids[i],
     value,
@@ -328,7 +339,7 @@ function View({ state, onInspect, animMs }: ViewProps) {
 
   return (
     <group scale={scale}>
-      <AnimatedStage tiles={tiles} spawn="above" exit="below" duration={animMs}>
+      <AnimatedStage tiles={tiles} edges={rails} spawn="above" exit="below" duration={animMs}>
         {state.values.map((_, i) => (
           <Label
             key={`slot-${i}`}

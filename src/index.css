@@ -396,7 +396,26 @@ button {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   background: var(--paper);
+}
+
+/* the drawing can be wider than the pane: scroll sideways to reach every block */
+.stage-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.stage-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.stage-scroll::-webkit-scrollbar-thumb {
+  background: rgba(176, 141, 87, 0.35);
+  border-radius: 4px;
 }
 
 .stage canvas {
@@ -478,11 +497,65 @@ button {
   color: var(--ink-2);
 }
 
-.stage-error {
+.stage-bottom {
   position: absolute;
   left: 14px;
-  bottom: 14px;
   right: 14px;
+  bottom: 12px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.stage-bottom > * {
+  width: 100%;
+  max-width: 520px;
+  pointer-events: auto;
+}
+
+/* ---------------- program output, in the scene ---------------- */
+
+.stage-output {
+  max-height: 150px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.94);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 10px rgba(70, 55, 30, 0.07);
+}
+
+.out-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(255, 253, 248, 0.97);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.stage-output pre {
+  margin: 0;
+  padding: 8px 11px 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.stage-error {
   max-width: 520px;
   display: flex;
   flex-direction: column;
@@ -503,6 +576,11 @@ button {
   font-family: var(--mono);
   font-size: 10.5px;
   color: #7a4a38;
+}
+
+/* the output card owns the bottom edge once the program prints */
+.stage:has(.stage-output) .hint-float {
+  display: none;
 }
 
 .hint-float {
@@ -1442,8 +1520,8 @@ button {
 /* ---------------- memory stage ---------------- */
 
 .mem-stage {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  height: 100%;
   overflow: hidden;
   background:
     radial-gradient(600px 380px at 50% 40%, rgba(201, 162, 39, 0.05), transparent 70%),
@@ -1875,6 +1953,319 @@ button {
 
 @media (max-width: 1080px) {
   .splitter {
+    display: none;
+  }
+}
+
+/* ---------------- account / sign in ---------------- */
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.account.is-idle {
+  width: 1px;
+}
+
+.btn-google {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  transition: border-color 0.18s, background 0.18s;
+}
+
+.btn-google:hover {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+.avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--gold-deep);
+  background: linear-gradient(180deg, #fffdf8, #f3ead8);
+}
+
+.account-name {
+  font-size: 11.5px;
+  color: var(--ink-2);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-streak {
+  font-size: 11px;
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.account-out {
+  background: none;
+  border: 0;
+  padding: 4px 2px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+.account-out:hover {
+  color: var(--rose);
+}
+
+.ghost-action {
+  padding: 4px 9px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--gold-deep);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.ghost-action:hover {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+/* ---------------- saved programs drawer ---------------- */
+
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(33, 28, 21, 0.22);
+  backdrop-filter: blur(2px);
+}
+
+.drawer {
+  width: min(400px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 18px 24px;
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  box-shadow: -18px 0 40px rgba(33, 28, 21, 0.12);
+  overflow-y: auto;
+  animation: drawer-in 0.18s ease-out;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(14px);
+    opacity: 0.6;
+  }
+}
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-head h2 {
+  margin: 2px 0 0;
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.drawer-close {
+  background: none;
+  border: 0;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px;
+}
+
+.drawer-close:hover {
+  color: var(--ink);
+}
+
+.drawer-save {
+  display: flex;
+  gap: 8px;
+}
+
+.drawer-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.drawer-input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.drawer-save .btn-gold {
+  padding: 7px 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.drawer-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 10px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--card-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+}
+
+.chip.on {
+  color: var(--gold-deep);
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.drawer-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--sage);
+}
+
+.drawer-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.drawer-empty code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.drawer-empty .btn-google {
+  margin-top: 10px;
+}
+
+.save-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.save-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--card-2);
+}
+
+.save-list li:hover {
+  border-color: var(--line);
+}
+
+.save-list li.is-busy {
+  opacity: 0.55;
+}
+
+.star {
+  background: none;
+  border: 0;
+  padding: 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--faint);
+}
+
+.star.on {
+  color: var(--gold);
+}
+
+.save-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+.save-title {
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-main:hover .save-title {
+  color: var(--gold-deep);
+}
+
+.save-meta {
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--faint);
+}
+
+.save-del {
+  background: none;
+  border: 0;
+  font-size: 11px;
+  color: var(--faint);
+  padding: 3px;
+}
+
+.save-del:hover {
+  color: var(--rose);
+}
+
+@media (max-width: 760px) {
+  .account-name,
+  .account-out {
     display: none;
   }
 }

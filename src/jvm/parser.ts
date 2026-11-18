@@ -5,9 +5,23 @@ export type TypeRef = { name: string; dims: number };
 
 export type ClassDef = {
   name: string;
+  /** `Outer.Node` for a nested type, so both names can resolve */
+  qualified?: string;
+  kind: 'class' | 'interface' | 'enum' | 'record';
+  parent?: string;
+  interfaces: string[];
   fields: { type: TypeRef; name: string; init: Expr | null; isStatic: boolean }[];
   methods: MethodDef[];
+  /** enum constants in declaration order */
+  constants?: string[];
+  /** `static { … }` blocks, run when the class is first touched */
+  staticInit?: Stmt[];
+  /** `{ … }` blocks, run on every instance before the constructor body */
+  instanceInit?: Stmt[];
 };
+
+export type SwitchGroup = { tests: Expr[]; def: boolean; arrow: boolean; body: Stmt[] };
+export type SwitchArm = { tests: Expr[]; def: boolean; value: Expr | null; body: Stmt | null };
 
 export type MethodDef = {
   name: string;
@@ -27,13 +41,18 @@ export type Stmt =
   | { t: 'while'; cond: Expr; body: Stmt; line: number }
   | { t: 'dowhile'; cond: Expr; body: Stmt; line: number }
   | { t: 'for'; init: Stmt | null; cond: Expr | null; update: Expr | null; body: Stmt; line: number }
+  | { t: 'foreach'; type: TypeRef; name: string; iter: Expr; body: Stmt; line: number }
   | { t: 'return'; value: Expr | null; line: number }
   | { t: 'break'; line: number }
   | { t: 'continue'; line: number }
+  | { t: 'switch'; sel: Expr; groups: SwitchGroup[]; line: number }
+  | { t: 'try'; body: Stmt; catches: { type: string; param: string; body: Stmt }[]; fin: Stmt | null; line: number }
+  | { t: 'throw'; value: Expr; line: number }
+  | { t: 'yield'; value: Expr | null; line: number }
   | { t: 'empty'; line: number };
 
 export type Expr =
-  | { t: 'num'; v: number; isDouble: boolean }
+  | { t: 'num'; v: number; isDouble: boolean; isLong?: boolean }
   | { t: 'str'; v: string }
   | { t: 'char'; v: string }
   | { t: 'bool'; v: boolean }
@@ -48,21 +67,36 @@ export type Expr =
   | { t: 'new'; name: string; dims: (Expr | null)[]; init: Expr[] | null; args: Expr[] }
   | { t: 'field'; target: Expr; name: string }
   | { t: 'index'; target: Expr; index: Expr }
-  | { t: 'seq'; items: Expr[] };
+  | { t: 'seq'; items: Expr[] }
+  | { t: 'lam'; params: string[]; body: Expr | Stmt; block: boolean; line: number }
+  | { t: 'mref'; target: Expr; name: string }
+  | { t: 'switch'; sel: Expr; arms: SwitchArm[] }
+  | { t: 'super' }
+  | { t: 'cast'; type: TypeRef; e: Expr };
 
 const PRIMITIVES = new Set([
   'int', 'long', 'short', 'byte', 'double', 'float', 'boolean', 'char', 'void', 'var',
 ]);
 
-const BIN_LEVELS = [['||'], ['&&'], ['==', '!='], ['<', '>', '<=', '>='], ['+', '-'], ['*', '/', '%']];
+const BIN_LEVELS = [['||'], ['&&'], ['==', '!='], ['<', '>', '<=', '>=', 'instanceof'], ['+', '-'], ['*', '/', '%']];
 
 const ASSIGN_OPS = new Set(['=', '+=', '-=', '*=', '/=', '%=']);
 
-const MODIFIERS = new Set(['public', 'private', 'protected', 'static', 'final', 'abstract', 'synchronized']);
+const MODIFIERS = new Set([
+  'public', 'private', 'protected', 'static', 'final', 'abstract', 'synchronized',
+  'default', 'native', 'transient', 'volatile', 'strictfp',
+]);
+
+/** modifiers that may sit in front of a top-level class */
+const CLASS_MODIFIERS = new Set(['public', 'final', 'abstract', 'strictfp', 'sealed']);
 
 class Parser {
   private i = 0;
   private classes: ClassDef[] = [];
+  /** non-zero while parsing `case` labels, where `->` is not a lambda */
+  private caseLabel = 0;
+  /** names of the classes we are currently inside, for qualified nested types */
+  private enclosing: string[] = [];
 
   constructor(private toks: Tok[]) {}
 
@@ -73,7 +107,10 @@ class Parser {
   }
 
   private at(v: string): boolean {
-    return this.peek().v === v;
+    const tok = this.peek();
+    // a string or char literal that happens to contain an operator character
+    // (`"-"`, `"("`) is a value, never punctuation
+    return tok.v === v && tok.k !== 'str' && tok.k !== 'chr';
   }
 
   private eat(v: string): boolean {
@@ -113,12 +150,16 @@ class Parser {
         continue;
       }
       if (this.at('@')) {
-        this.i++;
-        this.ident();
+        this.skipAnnotation();
         continue;
       }
-      if (this.at('class')) {
-        this.parseClass();
+      // `public class Main` and friends: the modifiers change nothing here
+      if (this.peek().k === 'id' && CLASS_MODIFIERS.has(this.peek().v)) {
+        this.i++;
+        continue;
+      }
+      if (this.at('class') || this.at('interface') || this.at('enum') || this.at('record')) {
+        this.parseTypeDecl();
         continue;
       }
       this.fail(`Expected a class definition but found "${this.peek().v}"`);
@@ -126,20 +167,148 @@ class Parser {
     return this.classes;
   }
 
-  private parseClass(): void {
-    this.expect('class');
-    const cls: ClassDef = { name: this.ident(), fields: [], methods: [] };
-    if (this.eat('extends')) this.ident();
+  /** `@Override`, `@SuppressWarnings("unchecked")` — annotations carry no meaning for the trace */
+  private skipAnnotation(): void {
+    this.i++; // '@'
+    if (this.peek().k === 'id') this.i++;
+    if (this.at('(')) {
+      let depth = 0;
+      do {
+        if (this.at('(')) depth++;
+        else if (this.at(')')) depth--;
+        this.i++;
+      } while (depth > 0 && this.peek().k !== 'eof');
+    }
+  }
+
+  /** class / interface / enum / record — the header differs, the members do not */
+  private parseTypeDecl(): void {
+    const keyword = this.peek().v;
+    this.i++;
+    if (keyword === 'record') {
+      this.parseRecord();
+      return;
+    }
+    const cls: ClassDef = {
+      name: this.ident(),
+      kind: keyword === 'enum' ? 'enum' : keyword === 'interface' ? 'interface' : 'class',
+      interfaces: [],
+      fields: [],
+      methods: [],
+    };
+    if (this.enclosing.length) cls.qualified = [...this.enclosing, cls.name].join('.');
+    if (this.eat('extends')) {
+      const parent = this.dottedName();
+      // an interface extends other interfaces; a class extends one superclass
+      if (cls.kind === 'interface') cls.interfaces.push(parent);
+      else cls.parent = parent;
+    }
     if (this.eat('implements')) {
-      this.ident();
-      while (this.eat(',')) this.ident();
+      cls.interfaces.push(this.dottedName());
+      while (this.eat(',')) cls.interfaces.push(this.dottedName());
     }
     this.expect('{');
     this.classes.push(cls);
+    if (cls.kind === 'enum') this.parseEnumConstants(cls);
 
+    this.enclosing.push(cls.name);
     while (!this.at('}') && this.peek().k !== 'eof') {
       this.parseMember(cls);
     }
+    this.enclosing.pop();
+    this.expect('}');
+  }
+
+  private dottedName(): string {
+    let name = this.ident();
+    while (this.at('.') && this.peek(1).k === 'id') {
+      this.i++;
+      name += '.' + this.ident();
+    }
+    if (this.at('<')) this.skipGenerics();
+    return name;
+  }
+
+  /** `enum Size { SMALL, LARGE(3); … }` — constants, then ordinary members */
+  private parseEnumConstants(cls: ClassDef): void {
+    const names: string[] = [];
+    while (!this.at(';') && !this.at('}') && this.peek().k !== 'eof') {
+      if (this.peek().k === 'id') {
+        names.push(this.ident());
+        if (this.at('(')) this.skipBalanced('(', ')');
+        if (this.at('{')) this.skipBalanced('{', '}');
+      } else {
+        this.i++;
+      }
+      if (!this.eat(',')) break;
+    }
+    cls.constants = names;
+    this.eat(';');
+  }
+
+  private skipBalanced(open: string, close: string): void {
+    let depth = 0;
+    do {
+      if (this.at(open)) depth++;
+      else if (this.at(close)) depth--;
+      this.i++;
+      if (this.peek().k === 'eof') this.fail(`Unclosed "${open}"`);
+    } while (depth > 0);
+  }
+
+  /** `record Point(int x, int y)` is a final class: fields, a constructor and accessors */
+  private parseRecord(): void {
+    const name = this.ident();
+    this.expect('(');
+    const params: { type: TypeRef; name: string }[] = [];
+    if (!this.at(')')) {
+      do {
+        const { type, name: paramName } = this.parseTypeAndName();
+        params.push({ type, name: paramName });
+      } while (this.eat(','));
+    }
+    this.expect(')');
+
+    const body = (statements: Stmt[]) => ({ t: 'block' as const, body: statements, line: 0 });
+    const cls: ClassDef = {
+      name,
+      kind: 'record',
+      interfaces: [],
+      fields: params.map((param) => ({ type: param.type, name: param.name, init: null, isStatic: false })),
+      methods: [
+        {
+          name,
+          ret: { name: 'void', dims: 0 },
+          params: [...params],
+          body: body(
+            params.map((param) => ({
+              t: 'expr' as const,
+              line: 0,
+              expr: { t: 'assign' as const, op: '=', target: { t: 'field' as const, target: { t: 'this' as const }, name: param.name }, value: { t: 'id' as const, name: param.name } },
+            }))
+          ),
+          line: 0,
+          isStatic: false,
+          isCtor: true,
+        },
+        ...params.map((param) => ({
+          name: param.name,
+          ret: param.type,
+          params: [] as { type: TypeRef; name: string }[],
+          body: body([{ t: 'return' as const, line: 0, value: { t: 'field' as const, target: { t: 'this' as const }, name: param.name } }]),
+          line: 0,
+          isStatic: false,
+          isCtor: false,
+        })),
+      ],
+    };
+    if (this.eat('implements')) {
+      cls.interfaces.push(this.dottedName());
+      while (this.eat(',')) cls.interfaces.push(this.dottedName());
+    }
+    this.expect('{');
+    this.classes.push(cls);
+    while (!this.at('}') && this.peek().k !== 'eof') this.parseMember(cls);
     this.expect('}');
   }
 
@@ -150,12 +319,19 @@ class Parser {
       this.i++;
     }
     if (this.at('@')) {
-      this.i++;
-      this.ident();
+      this.skipAnnotation();
       return;
     }
-    if (this.at('class')) {
-      this.parseClass();
+    if (this.at('class') || this.at('interface') || this.at('enum') || this.at('record')) {
+      this.parseTypeDecl();
+      return;
+    }
+
+    // initializer block: `static { … }` or plain `{ … }`
+    if (this.at('{')) {
+      const block = this.parseBlock();
+      const target = isStatic ? 'staticInit' : 'instanceInit';
+      (cls[target] ??= []).push(block);
       return;
     }
 
@@ -173,6 +349,11 @@ class Parser {
     if (this.at('(')) {
       const line = this.peek().line;
       const params = this.parseParams();
+      // interface and abstract methods end at the semicolon
+      if (this.eat(';')) {
+        cls.methods.push({ name, ret: type, params, body: { t: 'block', body: [], line }, line, isStatic, isCtor: false });
+        return;
+      }
       const body = this.parseBlock();
       cls.methods.push({ name, ret: type, params, body, line, isStatic, isCtor: false });
       return;
@@ -200,6 +381,11 @@ class Parser {
 
   private parseTypeAndName(): { type: TypeRef; name: string } {
     const type = this.parseType();
+    // `String... args` is just `String[] args`
+    if (this.at('...')) {
+      this.i++;
+      type.dims = Math.max(1, type.dims + 1);
+    }
     const name = this.ident();
     while (this.at('[') && this.peek(1).v === ']') {
       this.i += 2;
@@ -213,6 +399,11 @@ class Parser {
     if (tok.k !== 'id') this.fail('Expected a type');
     this.i++;
     let name = tok.v;
+    // `Map.Entry<String, Integer>` is one dotted type name
+    while (this.at('.') && this.peek(1).k === 'id') {
+      this.i++;
+      name += '.' + this.ident();
+    }
     if (!PRIMITIVES.has(name) && !/^[A-Z]/.test(name) && name !== 'var') {
       this.fail(`Unknown type "${name}"`);
     }
@@ -228,7 +419,10 @@ class Parser {
   private skipGenerics(): void {
     let depth = 0;
     do {
+      // `List<List<Integer>>` closes two levels with the single token `>>`
       if (this.at('<')) depth++;
+      else if (this.at('>>>')) depth -= 3;
+      else if (this.at('>>')) depth -= 2;
       else if (this.at('>')) depth--;
       this.i++;
       if (this.peek().k === 'eof') this.fail('Unclosed generic type');
@@ -260,7 +454,7 @@ class Parser {
         return null;
       }
       const after = this.peek(1);
-      if (!['=', ';', ',', '['].includes(after.v)) {
+      if (!['=', ';', ',', '[', ':'].includes(after.v)) {
         this.i = save;
         return null;
       }
@@ -279,10 +473,21 @@ class Parser {
   }
 
   private finishDecl(type: TypeRef, name: string, line: number): Stmt {
-    let init: Expr | null = null;
-    if (this.eat('=')) init = this.at('{') ? this.parseArrayInit() : this.parseExpr();
+    // `int a = 1, b = 2;` declares several names with one type
+    const decls: Stmt[] = [];
+    let current = { type, name };
+    for (;;) {
+      let init: Expr | null = null;
+      if (this.eat('=')) init = this.at('{') ? this.parseArrayInit() : this.parseExpr();
+      decls.push({ t: 'vardecl', type: current.type, name: current.name, init, line });
+      if (!this.eat(',')) break;
+      const tok = this.peek();
+      if (tok.k !== 'id') this.fail('Expected another variable name');
+      this.i++;
+      current = { type: current.type, name: tok.v };
+    }
     this.expect(';');
-    return { t: 'vardecl', type, name, init, line };
+    return decls.length === 1 ? decls[0] : { t: 'block', body: decls, line };
   }
 
   private parseStmt(): Stmt {
@@ -324,13 +529,35 @@ class Parser {
     if (this.at('for')) {
       this.i++;
       this.expect('(');
+
+      // enhanced for: for (int v : values)
+      const head = this.tryDecl();
+      if (head && this.at(':')) {
+        this.i++; // ':'
+        const iter = this.parseExpr();
+        this.expect(')');
+        return { t: 'foreach', type: head.type, name: head.name, iter, body: this.parseStmt(), line };
+      }
+
       let init: Stmt | null = null;
       if (!this.at(';')) {
-        const decl = this.tryDecl();
+        const decl = head;
         if (decl) {
-          let value: Expr | null = null;
-          if (this.eat('=')) value = this.at('{') ? this.parseArrayInit() : this.parseExpr();
-          init = { t: 'vardecl', type: decl.type, name: decl.name, init: value, line };
+          // `for (int i = 0, j = n - 1; …)` declares more than one variable
+          const decls: Stmt[] = [];
+          let current: { type: TypeRef; name: string } | null = decl;
+          for (;;) {
+            let value: Expr | null = null;
+            if (this.eat('=')) value = this.at('{') ? this.parseArrayInit() : this.parseExpr();
+            decls.push({ t: 'vardecl', type: current!.type, name: current!.name, init: value, line });
+            if (!this.eat(',')) break;
+            // `int i = 0, j = n - 1` — the type is implied for later names
+            const nameTok = this.peek();
+            if (nameTok.k !== 'id') this.fail('Expected another variable name');
+            this.i++;
+            current = { type: current!.type, name: nameTok.v };
+          }
+          init = decls.length === 1 ? decls[0] : { t: 'block', body: decls, line };
           this.expect(';');
         } else {
           const expr = this.parseExpr();
@@ -372,17 +599,117 @@ class Parser {
       return { t: 'continue', line };
     }
 
-    const decl = this.tryDecl();
-    if (decl) {
-      const first = this.finishDecl(decl.type, decl.name, line) as Extract<Stmt, { t: 'vardecl' }>;
-      const extra: Stmt[] = [first];
-      // `int a = 1, b = 2;` — finishDecl already consumed the ';', so handle commas inline
-      return extra.length === 1 ? first : { t: 'block', body: extra, line };
+    if (this.at('switch')) return this.parseSwitchStmt();
+
+    if (this.at('try')) {
+      this.i++;
+      const body = this.at('{') ? this.parseBlock() : this.parseStmt();
+      const catches: { type: string; param: string; body: Stmt }[] = [];
+      while (this.at('catch')) {
+        this.i++;
+        this.expect('(');
+        const names: string[] = [];
+        while (!this.at(')') && this.peek().k !== 'eof') {
+          const tok = this.next();
+          if (tok.k === 'id') names.push(tok.v);
+        }
+        this.expect(')');
+        const param = names.length >= 2 ? names[names.length - 1] : 'e';
+        const type = names.find((n) => n !== param) ?? 'Exception';
+        catches.push({ type, param, body: this.parseBlock() });
+      }
+      let fin: Stmt | null = null;
+      if (this.eat('finally')) fin = this.parseBlock();
+      if (!catches.length && !fin) this.fail('try needs a catch or finally');
+      return { t: 'try', body, catches, fin, line };
     }
+
+    if (this.at('throw')) {
+      this.i++;
+      const value = this.parseExpr();
+      this.expect(';');
+      return { t: 'throw', value, line };
+    }
+
+    // only legal inside a block-bodied switch arm
+    if (this.at('yield')) {
+      this.i++;
+      if (this.eat(';')) return { t: 'yield', value: null, line };
+      const value = this.parseExpr();
+      this.expect(';');
+      return { t: 'yield', value, line };
+    }
+
+    const decl = this.tryDecl();
+    if (decl) return this.finishDecl(decl.type, decl.name, line);
 
     const expr = this.parseExpr();
     this.expect(';');
     return { t: 'expr', expr, line };
+  }
+
+  /* ---------- switch ---------- */
+
+  private parseSwitchStmt(): Stmt {
+    const line = this.peek().line;
+    this.expect('switch');
+    this.expect('(');
+    const sel = this.parseExpr();
+    this.expect(')');
+    this.expect('{');
+    const groups: SwitchGroup[] = [];
+
+    while (!this.at('}') && this.peek().k !== 'eof') {
+      const { tests, def } = this.parseCaseLabels();
+      if (this.eat('->')) {
+        const body: Stmt[] = this.at('{') ? [this.parseBlock()] : [this.parseStmt()];
+        groups.push({ tests, def, arrow: true, body });
+      } else {
+        this.expect(':');
+        const body: Stmt[] = [];
+        while (!this.at('}') && !this.at('case') && !this.at('default') && this.peek().k !== 'eof') {
+          body.push(this.parseStmt());
+        }
+        groups.push({ tests, def, arrow: false, body });
+      }
+    }
+    this.expect('}');
+    return { t: 'switch', sel, groups, line };
+  }
+
+  private parseSwitchExpr(): Expr {
+    this.expect('switch');
+    this.expect('(');
+    const sel = this.parseExpr();
+    this.expect(')');
+    this.expect('{');
+    const arms: SwitchArm[] = [];
+    while (!this.at('}') && this.peek().k !== 'eof') {
+      const { tests, def } = this.parseCaseLabels();
+      if (!this.eat('->')) this.fail('switch expressions need "case X -> value" arms');
+      if (this.at('{')) {
+        arms.push({ tests, def, value: null, body: this.parseBlock() });
+      } else {
+        const value = this.parseExpr();
+        this.expect(';');
+        arms.push({ tests, def, value, body: null });
+      }
+    }
+    this.expect('}');
+    return { t: 'switch', sel, arms };
+  }
+
+  private parseCaseLabels(): { tests: Expr[]; def: boolean } {
+    if (this.eat('default')) return { tests: [], def: true };
+    this.expect('case');
+    this.caseLabel++;
+    try {
+      const tests = [this.parseTernary()];
+      while (this.eat(',')) tests.push(this.parseTernary());
+      return { tests, def: false };
+    } finally {
+      this.caseLabel--;
+    }
   }
 
   /* ---------- expressions ---------- */
@@ -421,7 +748,8 @@ class Parser {
   private parseBinary(level: number): Expr {
     if (level >= BIN_LEVELS.length) return this.parseUnary();
     let left = this.parseBinary(level + 1);
-    while (this.peek().k === 'op' && BIN_LEVELS[level].includes(this.peek().v)) {
+    // `instanceof` is a keyword token, not a punctuation operator
+    while ((this.peek().k === 'op' || this.peek().v === 'instanceof') && BIN_LEVELS[level].includes(this.peek().v)) {
       const op = this.next().v;
       const right = this.parseBinary(level + 1);
       left = { t: 'bin', op, l: left, r: right };
@@ -430,6 +758,13 @@ class Parser {
   }
 
   private parseUnary(): Expr {
+    // cast: (int) expr, (double) count, (String) value
+    if (this.at('(') && this.castAhead()) {
+      this.i++;
+      const type = this.parseType();
+      this.expect(')');
+      return { t: 'cast', type, e: this.parseUnary() };
+    }
     if (this.at('!') || this.at('-') || this.at('+')) {
       const op = this.next().v;
       return { t: 'un', op, e: this.parseUnary(), prefix: true };
@@ -446,7 +781,14 @@ class Parser {
     for (;;) {
       if (this.at('.')) {
         this.i++;
-        const name = this.ident();
+        // `Type.<T>method(...)`
+        if (this.at('<') && this.typeArgsAhead()) this.skipGenerics();
+        let name = this.ident();
+        // explicit type arguments: `Map.Entry.<String, Integer>comparingByValue()`
+        if (this.at('<') && this.typeArgsAhead()) {
+          this.skipGenerics();
+          name = this.ident();
+        }
         if (this.at('(')) {
           expr = { t: 'call', callee: { t: 'field', target: expr, name }, args: this.parseArgs() };
         } else {
@@ -461,6 +803,12 @@ class Parser {
         expr = { t: 'index', target: expr, index };
         continue;
       }
+      if (this.at('::')) {
+        this.i++;
+        const name = this.ident();
+        expr = { t: 'mref', target: expr, name };
+        continue;
+      }
       if (this.at('++') || this.at('--')) {
         const op = this.next().v;
         expr = { t: 'un', op, e: expr, prefix: false };
@@ -469,6 +817,79 @@ class Parser {
       break;
     }
     return expr;
+  }
+
+  /** true when `<` here opens type arguments of a method call, not a comparison */
+  private typeArgsAhead(): boolean {
+    let depth = 0;
+    for (let k = this.i; k < Math.min(this.toks.length, this.i + 48); k++) {
+      const v = this.toks[k].v;
+      if (this.toks[k].k === 'eof') return false;
+      if (v === '<') depth++;
+      else if (v === '>') depth--;
+      else if (v === '>>') depth -= 2;
+      else if (v === '>>>') depth -= 3;
+      else if (depth === 0) return false;
+      if (depth <= 0) {
+        const next = this.toks[k + 1];
+        if (next?.v === '(') return true;
+        // `.<T>method(` puts the method name between the type args and the call
+        return next?.k === 'id' && this.toks[k + 2]?.v === '(';
+      }
+    }
+    return false;
+  }
+
+  /** index of the `)` matching the `(` at `start`, or -1 */
+  private matchParenAt(start: number): number {
+    let depth = 0;
+    for (let k = start; k < this.toks.length; k++) {
+      const v = this.toks[k].v;
+      if (this.toks[k].k === 'eof') return -1;
+      if (v === '(') depth++;
+      else if (v === ')') {
+        depth--;
+        if (depth === 0) return k;
+      }
+    }
+    return -1;
+  }
+
+  private castAhead(): boolean {
+    const name = this.peek(1);
+    const close = this.peek(2);
+    const next = this.peek(3);
+    if (name.k !== 'id') return false;
+    const known = PRIMITIVES.has(name.v) || /^[A-Z]/.test(name.v);
+    return known && close.v === ')' && next.k !== 'eof' && next.v !== '->';
+  }
+
+  private lambdaAhead(): boolean {
+    const end = this.matchParenAt(this.i);
+    return end > 0 && this.toks[end + 1]?.v === '->';
+  }
+
+  private parseLambda(): Expr {
+    const line = this.peek().line;
+    const params: string[] = [];
+    this.expect('(');
+    if (!this.at(')')) {
+      do {
+        if (this.peek().v === 'final') this.i++;
+        // optional parameter type: (int a) / (String s)
+        if (this.peek().k === 'id' && this.peek(1).k === 'id') this.i++;
+        params.push(this.ident());
+      } while (this.eat(','));
+    }
+    this.expect(')');
+    this.expect('->');
+    const { body, block } = this.parseLambdaBody();
+    return { t: 'lam', params, body, block, line };
+  }
+
+  private parseLambdaBody(): { body: Expr | Stmt; block: boolean } {
+    if (this.at('{')) return { body: this.parseBlock(), block: true };
+    return { body: this.parseAssign(), block: false };
   }
 
   private parseArgs(): Expr[] {
@@ -496,7 +917,12 @@ class Parser {
   }
 
   private parseNew(): Expr {
-    const name = this.ident();
+    let name = this.ident();
+    // `new Outer.Node()`
+    while (this.at('.') && this.peek(1).k === 'id') {
+      this.i++;
+      name += '.' + this.ident();
+    }
     if (this.at('<')) this.skipGenerics();
     const dims: (Expr | null)[] = [];
     while (this.at('[')) {
@@ -523,7 +949,12 @@ class Parser {
 
     if (tok.k === 'num') {
       this.i++;
-      return { t: 'num', v: Number(tok.v.replace(/[LlFfDd]$/, '')), isDouble: !!tok.isDouble };
+      const isDouble = !!tok.isDouble;
+      const isRadix = /^0[xXbB]/.test(tok.v);
+      const isLong = !isDouble && !isRadix && /[Ll]$/.test(tok.v);
+      // `0xFF` ends in an F that is a digit, not a float suffix
+      const digits = (isRadix ? tok.v : tok.v.replace(/[LlFfDd]$/, '')).replace(/_/g, '');
+      return { t: 'num', v: Number(digits), isDouble, isLong };
     }
     if (tok.k === 'str') {
       this.i++;
@@ -545,11 +976,19 @@ class Parser {
       this.i++;
       return { t: 'this' };
     }
+    if (tok.v === 'super') {
+      this.i++;
+      // super(...) is a constructor call on the parent
+      if (this.at('(')) return { t: 'call', callee: { t: 'super' }, args: this.parseArgs() };
+      return { t: 'super' };
+    }
+    if (tok.v === 'switch') return this.parseSwitchExpr();
     if (tok.v === 'new') {
       this.i++;
       return this.parseNew();
     }
     if (tok.v === '(') {
+      if (this.lambdaAhead()) return this.parseLambda();
       this.i++;
       const inner = this.parseExpr();
       this.expect(')');
@@ -557,6 +996,12 @@ class Parser {
     }
     if (tok.k === 'id') {
       this.i++;
+      // `case RED ->` is a switch label, not a lambda
+      if (this.at('->') && !this.caseLabel) {
+        this.i++;
+        const { body, block } = this.parseLambdaBody();
+        return { t: 'lam', params: [tok.v], body, block, line: tok.line };
+      }
       if (this.at('(')) return { t: 'call', callee: { t: 'id', name: tok.v }, args: this.parseArgs() };
       return { t: 'id', name: tok.v };
     }
@@ -596,6 +1041,16 @@ export function src(e: Expr): string {
       return `${src(e.target)}.${e.name}`;
     case 'index':
       return `${src(e.target)}[${src(e.index)}]`;
+    case 'lam':
+      return `${e.params.length === 1 ? e.params[0] : `(${e.params.join(', ')})`} -> ${e.block ? '{ … }' : src(e.body as Expr)}`;
+    case 'mref':
+      return `${src(e.target)}::${e.name}`;
+    case 'cast':
+      return `(${e.type.name}${'[]'.repeat(e.type.dims)}) ${src(e.e)}`;
+    case 'super':
+      return 'super';
+    case 'switch':
+      return `switch (${src(e.sel)})`;
     case 'new': {
       if (e.init) return `{...}`;
       const dims = e.dims.map((d) => `[${d ? src(d) : ''}]`).join('');

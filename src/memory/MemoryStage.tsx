@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { TraceStep } from '../jvm/types';
 import type { Selected } from '../topics/types';
-import { buildLayout, NODE, STACK_W } from './layout';
+import { buildLayout, NODE, STACK_W, type MemLayout } from './layout';
 import {
   AnimatedStage,
   stableIds,
@@ -13,6 +13,15 @@ import {
   type TileSpec,
 } from '../three/anim';
 import { FitCanvas } from '../three/FitCanvas';
+
+/** right-most pixel the drawing needs */
+function extentOf(layout: MemLayout): number {
+  let right = 0;
+  for (const node of layout.nodes) right = Math.max(right, node.x + node.size / 2);
+  for (const card of layout.cards) right = Math.max(right, card.x + card.w / 2);
+  for (const label of layout.labels) right = Math.max(right, label.x + label.text.length * 5.4 + 14);
+  return right;
+}
 
 const CAMERA_Z = 14;
 
@@ -35,27 +44,41 @@ export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Pr
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
+    // measure the visible pane, not the (possibly wider) drawing surface
     const host = hostRef.current;
-    if (!host) return;
-    const measure = () => setSize({ w: host.clientWidth, h: host.clientHeight });
+    const pane = host?.parentElement ?? host;
+    if (!pane) return;
+    const measure = () => setSize({ w: pane.clientWidth, h: pane.clientHeight });
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(host);
+    observer.observe(pane);
     return () => observer.disconnect();
   }, []);
 
   // phones get a narrower call-stack column so the heap keeps most of the width
   const stackW = size.w > 0 && size.w < 640 ? Math.min(152, Math.round(size.w * 0.44)) : STACK_W;
-  const layout = useMemo(() => buildLayout(step, size.w, size.h, stackW), [step, size.w, size.h, stackW]);
+
+  // long chains and wide trees need more room than a phone has: widen the
+  // drawing surface and let the stage scroll sideways to reach every block
+  const { layout, wide } = useMemo(() => {
+    let width = Math.max(320, size.w);
+    let built = buildLayout(step, width, size.h, stackW);
+    for (let pass = 0; pass < 3; pass++) {
+      const need = Math.ceil(extentOf(built) + 16);
+      // ignore a couple of stray pixels: no scrollbar for rounding noise
+      if (need <= width + 8) break;
+      width = Math.min(2600, need);
+      built = buildLayout(step, width, size.h, stackW);
+    }
+    return { layout: built, wide: width };
+  }, [step, size.w, size.h, stackW]);
 
   const ppu = size.h > 0 ? size.h / (2 * CAMERA_Z * Math.tan((45 * Math.PI) / 360)) : 40;
   const toWorld = (x: number, y: number): [number, number, number] => [
-    (x - size.w / 2) / ppu,
+    (x - wide / 2) / ppu,
     (size.h / 2 - y) / ppu,
     0,
   ];
-
-  const trim = (NODE / 2 / ppu) * 0.94;
 
   // blocks may be dragged around the heap area, but not under the stack/variable
   // column where they would be covered and impossible to pick up again
@@ -63,12 +86,12 @@ export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Pr
     const left = stackW + 22;
     const top = 100;
     return {
-      minX: (left - size.w / 2) / ppu,
-      maxX: (size.w - 16 - size.w / 2) / ppu,
+      minX: (left - wide / 2) / ppu,
+      maxX: (wide - 16 - wide / 2) / ppu,
       maxY: (size.h / 2 - top) / ppu,
       minY: (size.h / 2 - (size.h - 16)) / ppu,
     };
-  }, [size.w, size.h, ppu, stackW]);
+  }, [wide, size.h, ppu, stackW]);
 
   // array/list cells get value-tracked ids so a swap or shift moves the block
   const cellIds = useMemo(() => {
@@ -87,11 +110,18 @@ export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Pr
     return map;
   }, [layout]);
 
+  // links are authored against layout node keys, but a cell's tile is keyed by
+  // its value-tracked id — so translate before handing edges to the stage
+  const tileIdOf = new Map<string, string>();
+  layout.nodes.forEach((node, at) => {
+    tileIdOf.set(node.key, cellIds.get(at) ?? node.key);
+  });
+
   const tiles: TileSpec[] = layout.nodes.map((node, at) => {
     // each node keeps its own footprint: cells are 36px, list/tree nodes 64px
     const box = node.size / ppu;
     return {
-    id: cellIds.get(at) ?? node.key,
+    id: tileIdOf.get(node.key)!,
     value: node.label,
     mark: node.mark,
     pos: toWorld(node.x, node.y),
@@ -113,24 +143,25 @@ export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Pr
 
   const edges: EdgeSpec[] = layout.edges.map((edge) => ({
     id: edge.key,
-    a: edge.from,
-    b: edge.to,
+    a: tileIdOf.get(edge.from) ?? edge.from,
+    b: tileIdOf.get(edge.to) ?? edge.to,
     arrow: edge.arrow,
     soft: edge.soft,
-    trimA: trim,
-    trimB: trim,
+    // cell rails stop at the box edge; chain links keep the node-sized trim
+    trimA: (edge.trimA ?? (NODE / 2) * 0.94) / ppu,
+    trimB: (edge.trimB ?? (NODE / 2) * 0.94) / ppu,
     radius: edge.soft ? 0.022 : 0.026,
     color: edge.soft ? '#c3b49a' : '#b08d57',
   }));
 
   return (
-    <div className="mem-stage" ref={hostRef}>
+    <div className="mem-stage" ref={hostRef} style={{ width: wide || '100%' }}>
       {size.w > 0 && (
         <Canvas
           dpr={[1, 2]}
           gl={{ antialias: true, alpha: true }}
           camera={{ position: [0, 0, CAMERA_Z], fov: 45, near: 0.1, far: 200 }}
-          style={{ position: 'absolute', inset: 0 }}
+          style={{ position: 'absolute', inset: 0, touchAction: 'pan-x' }}
         >
           <FitCanvas />
           <ambientLight intensity={1.05} />

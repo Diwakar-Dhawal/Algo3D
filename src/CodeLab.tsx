@@ -9,6 +9,9 @@ import { Editor } from './components/Editor';
 import { StepLog, type LogEntry } from './components/StepLog';
 import { panelVars, startResize, syncCanvases } from './components/panels';
 import type { Selected } from './topics/types';
+import { useAuth } from './auth/AuthContext';
+import { SavedDrawer } from './auth/SavedDrawer';
+import type { Save } from './auth/api';
 
 const BASE_MS = 620;
 
@@ -100,6 +103,18 @@ export function CodeLab() {
   const [leftHidden, setLeftHidden] = useState(() => (boot.narrow ? false : (boot.saved?.leftHidden ?? false)));
   const [rightHidden, setRightHidden] = useState(() => (boot.narrow ? false : (boot.saved?.rightHidden ?? false)));
 
+  const { user, recordRun } = useAuth();
+  const [savesOpen, setSavesOpen] = useState(false);
+
+  const openSave = (save: Save) => {
+    const target = save.language as LangId;
+    setLang(target);
+    setInputsDirty(true);
+    remember(target, { code: save.code, inputs: save.inputs });
+    setSavesOpen(false);
+    run(save.code, target, save.inputs);
+  };
+
   const remember = (language: LangId, patch: Partial<{ code: string; inputs: string; sample: string }>) => {
     setMemory((prev) => ({
       code: patch.code === undefined ? prev.code : { ...prev.code, [language]: patch.code },
@@ -129,6 +144,7 @@ export function CodeLab() {
     syncCanvases();
   };
   const outputRef = useRef<HTMLPreElement>(null);
+  const stageOutRef = useRef<HTMLDivElement>(null);
 
   const steps = trace.steps;
   const total = steps.length;
@@ -138,11 +154,14 @@ export function CodeLab() {
   const atEnd = safe >= total - 1;
 
   const run = (source: string, language: LangId = lang, box = inputs) => {
+    recordRun();
     const next = runIn(language, source, box);
     setTrace(next);
     setIndex(0);
     setPlaying(false);
     setSelected(null);
+    // show the result straight away instead of leaving the user on the editor
+    setView('visual');
   };
 
   useEffect(() => {
@@ -160,8 +179,9 @@ export function CodeLab() {
   }, [playing, safe, atEnd, speed, steps, breakpoints, step]);
 
   useEffect(() => {
-    const node = outputRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    for (const node of [outputRef.current, stageOutRef.current]) {
+      if (node) node.scrollTop = node.scrollHeight;
+    }
   }, [step?.stdout]);
 
   // make sure the canvas measures itself once the panel grid has settled
@@ -315,6 +335,13 @@ export function CodeLab() {
                 </option>
               ))}
             </select>
+            <button
+              className="ghost-action"
+              onClick={() => setSavesOpen(true)}
+              title={user ? 'Your saved programs and favourites' : 'Sign in to save programs'}
+            >
+              ★ Saved
+            </button>
             <button className="panel-collapse" onClick={toggleLeft} title="Collapse source">
               ‹
             </button>
@@ -347,20 +374,22 @@ export function CodeLab() {
 
       <section className="stage-wrap">
         <div className="stage">
-          {steps.length > 0 && step ? (
-            <MemoryStage
-              step={step}
-              stepIndex={safe}
-              onInspect={setSelected}
-              animMs={Math.round(Math.max(180, Math.min(520, (BASE_MS / speed) * 0.78)))}
-              resetKey={trace}
-            />
-          ) : (
-            <div className="stage-empty">
-              <p>{problem?.title ?? 'Nothing to visualize yet'}</p>
-              <span>{problem?.message ?? 'Press Run to trace your program.'}</span>
-            </div>
-          )}
+          <div className="stage-scroll">
+            {steps.length > 0 && step ? (
+              <MemoryStage
+                step={step}
+                stepIndex={safe}
+                onInspect={setSelected}
+                animMs={Math.round(Math.max(180, Math.min(520, (BASE_MS / speed) * 0.78)))}
+                resetKey={trace}
+              />
+            ) : (
+              <div className="stage-empty">
+                <p>{problem?.title ?? 'Nothing to visualize yet'}</p>
+                <span>{problem?.message ?? 'Press Run to trace your program.'}</span>
+              </div>
+            )}
+          </div>
 
           {step && (
             <div className="stage-note">
@@ -374,10 +403,23 @@ export function CodeLab() {
             </div>
           )}
 
-          {problem && steps.length > 0 && (
-            <div className="stage-error">
-              <b>{problem.title}</b>
-              <span>{problem.message}</span>
+          {(problem || step?.stdout) && (
+            <div className="stage-bottom">
+              {problem && steps.length > 0 && (
+                <div className="stage-error">
+                  <b>{problem.title}</b>
+                  <span>{problem.message}</span>
+                </div>
+              )}
+              {step?.stdout ? (
+                <div className="stage-output" ref={stageOutRef}>
+                  <div className="out-head">
+                    <span>output</span>
+                    <span>{step.stdout.split('\n').length - 1} lines</span>
+                  </div>
+                  <pre>{step.stdout}</pre>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -562,6 +604,12 @@ export function CodeLab() {
           onPointerDown={(event) => startResize(event, { dir: -1, width: right, min: 240, max: 560, onWidth: setRight })}
         />
       )}
+      <SavedDrawer
+        open={savesOpen}
+        onClose={() => setSavesOpen(false)}
+        current={{ language: lang, code, inputs }}
+        onLoad={openSave}
+      />
     </main>
   );
 }

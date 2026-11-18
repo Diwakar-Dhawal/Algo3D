@@ -35,6 +35,9 @@ export type MemEdge = {
   y2: number;
   arrow?: boolean;
   soft?: boolean;
+  /** gap in px kept free at each end (cells are smaller than list nodes) */
+  trimA?: number;
+  trimB?: number;
 };
 
 export type MemVar = { name: string; value: string; prev?: string; changed: boolean; ref?: number };
@@ -116,6 +119,8 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
   const areaW = right - left;
   // narrower cells on phones keep more of a short array on screen
   const cellSize = width < 560 ? 30 : CELL;
+  // a visible gap between cells is what makes the connecting rail readable
+  const cellGap = width < 560 ? 9 : 12;
 
   /* ---------- classify ---------- */
 
@@ -330,7 +335,7 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
         used.add(obj.id);
         continue;
       }
-      const count = Math.min(obj.cells.length, Math.max(1, Math.floor((areaW - 12) / (cellSize + 4))));
+      const count = Math.min(obj.cells.length, Math.max(1, Math.floor((areaW - 12) / (cellSize + cellGap))));
       const bandY = nextBand(28 + cellSize + 18);
       const showRefs = obj.cells.some((c) => c.kind === 'ref');
 
@@ -344,7 +349,7 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
       });
 
       obj.cells.slice(0, count).forEach((cell, index) => {
-        const x = left + cellSize / 2 + index * (cellSize + 4);
+        const x = left + cellSize / 2 + index * (cellSize + cellGap);
         const y = bandY + 24 + cellSize / 2;
         const effect = effectFor(obj.id, index);
         nodes.push({
@@ -359,12 +364,28 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
           prev: effect?.prev ? valText(effect.prev) : undefined,
           title: `${obj.label}[${index}]`,
         });
+        // one straight rail per neighbouring pair: the sequence reads as a
+        // single list without having to decode index numbers
+        if (index > 0) {
+          edges.push({
+            key: `rail-${obj.id}-${index}`,
+            from: `c-${obj.id}-${index - 1}`,
+            to: `c-${obj.id}-${index}`,
+            x1: x - cellSize / 2 - cellGap,
+            y1: y,
+            x2: x - cellSize / 2,
+            y2: y,
+            soft: true,
+            trimA: cellSize / 2,
+            trimB: cellSize / 2,
+          });
+        }
       });
 
       if (obj.cells.length > count) {
         labels.push({
           key: `more-${obj.id}`,
-          x: left + count * (cellSize + 4) + 6,
+          x: left + count * (cellSize + cellGap) + 6,
           y: bandY + 24 + cellSize / 2,
           text: `+${obj.cells.length - count}`,
           align: 'left',
@@ -406,6 +427,34 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
       })),
     });
     used.add(obj.id);
+  }
+
+  /* ---------- a 2D grid: tie each row array to the slot that holds it ---------- */
+
+  const nodeByKey = new Map(nodes.map((node) => [node.key, node]));
+  for (const obj of heap) {
+    if (obj.kind !== 'array' && obj.kind !== 'list') continue;
+    if (obj.cells.length > 8) continue;
+    obj.cells.forEach((cell, index) => {
+      if (cell.kind !== 'ref') return;
+      const child = byId.get(cell.id);
+      if (!child || (child.kind !== 'array' && child.kind !== 'list') || child.cells.length === 0) return;
+      const from = nodeByKey.get(`c-${obj.id}-${index}`);
+      const to = nodeByKey.get(`c-${child.id}-0`);
+      if (!from || !to) return;
+      edges.push({
+        key: `row-${obj.id}-${index}`,
+        from: from.key,
+        to: to.key,
+        x1: from.x,
+        y1: from.y + from.size / 2,
+        x2: to.x,
+        y2: to.y - to.size / 2,
+        soft: true,
+        trimA: from.size / 2,
+        trimB: to.size / 2,
+      });
+    });
   }
 
   /* ---------- centre the whole drawing vertically ---------- */

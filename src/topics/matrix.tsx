@@ -1,7 +1,7 @@
 import type { ControlsProps, Mark, Program, Selected, Step, TopicModule } from './types';
 import { fitScale, lineOf, parseGrid } from './util';
 import { Label } from '../three/Label';
-import { AnimatedStage, useStableIds, type TileSpec } from '../three/anim';
+import { AnimatedStage, useStableIds, type EdgeSpec, type TileSpec } from '../three/anim';
 
 type Mode = 'spiral' | 'transpose';
 type Params = { raw: string; mode: Mode };
@@ -139,9 +139,23 @@ type ViewProps = { state: GridState; onInspect: (s: Selected) => void; animMs?: 
 function View({ state, onInspect, animMs }: ViewProps) {
   const rows = state.grid.length;
   const cols = state.grid[0]?.length ?? 1;
-  const gap = 1.35;
+  const gap = 1.45;
   const scale = fitScale(cols * gap + 1, rows * gap + 1);
   const ids = useStableIds(state.grid.flat());
+
+  // rails between row neighbours and column neighbours: the grid's real
+  // adjacency is visible, so no index counting is needed
+  const rails: EdgeSpec[] = [];
+  state.grid.forEach((row, r) =>
+    row.forEach((_, c) => {
+      if (c > 0) {
+        rails.push({ id: `h-${r}-${c}`, a: ids[r * cols + c - 1], b: ids[r * cols + c], soft: true, radius: 0.014, trimA: 0.57, trimB: 0.57 });
+      }
+      if (r > 0) {
+        rails.push({ id: `v-${r}-${c}`, a: ids[(r - 1) * cols + c], b: ids[r * cols + c], soft: true, radius: 0.014, trimA: 0.57, trimB: 0.57 });
+      }
+    })
+  );
 
   const tiles: TileSpec[] = [];
   state.grid.forEach((row, r) =>
@@ -169,7 +183,7 @@ function View({ state, onInspect, animMs }: ViewProps) {
 
   return (
     <group scale={scale}>
-      <AnimatedStage tiles={tiles} spawn="below" exit="below" duration={animMs} />
+      <AnimatedStage tiles={tiles} edges={rails} spawn="below" exit="below" duration={animMs} />
       <Label text={`${rows} × ${cols}`} color="#4e6d8a" scale={0.75} position={[0, -(rows * gap) / 2 - 0.75, 0]} />
       <group position={[0, 0, -0.3]}>
         <mesh>

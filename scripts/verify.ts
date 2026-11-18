@@ -1,6 +1,7 @@
 import { runJava } from '../src/jvm/interp';
 import { buildLayout } from '../src/memory/layout';
 import { planMotions } from '../src/three/motion';
+import { stableIds, type IdStore } from '../src/three/identity';
 import { SAMPLES } from '../src/jvm/samples';
 import { runIn } from '../src/lang/index';
 import { suggestInputs } from '../src/lang/inputs';
@@ -366,6 +367,391 @@ check(
 
 const jsPrelude = runIn('js', sampleOf(JS_SAMPLES, 'js-bubble'), 'pad = 3\nvalues = [3, 1, 2]');
 check('extra js values still run the script', jsPrelude.stdout.includes('[1, 2, 3]'), JSON.stringify(jsPrelude.stdout));
+
+/* ---------- java as it is actually written ---------- */
+
+const javaPasted = runIn(
+  'java',
+  [
+    'import java.util.*;',
+    '',
+    'public class Main {',
+    '    public static void main(String... args) {',
+    '        int[] a = {3, 1, 2};',
+    '        int sum = 0;',
+    '        for (int v : a) sum += v;',
+    '        System.out.println("sum = " + sum);',
+    '    }',
+    '}',
+  ].join('\n')
+);
+check('imports, public class, varargs and for-each all run', javaPasted.stdout.trim() === 'sum = 6', JSON.stringify(javaPasted.compileError ?? javaPasted.error ?? javaPasted.stdout));
+
+const javaForEachList = runIn(
+  'java',
+  [
+    'import java.util.ArrayList;',
+    '',
+    'class Main {',
+    '    public static void main(String[] args) {',
+    '        ArrayList<Integer> xs = new ArrayList<>();',
+    '        xs.add(4);',
+    '        xs.add(6);',
+    '        int total = 0;',
+    '        for (int x : xs) total += x;',
+    '        System.out.println(total);',
+    '    }',
+    '}',
+  ].join('\n')
+);
+check('for-each walks an ArrayList', javaForEachList.stdout.trim() === '10', JSON.stringify(javaForEachList.compileError ?? javaForEachList.error ?? javaForEachList.stdout));
+
+const javaAnnotated = runIn(
+  'java',
+  ['@SuppressWarnings("unchecked")', 'public final class Main {', '    public static void main(String[] args) {', '        System.out.println("ok");', '    }', '}'].join('\n')
+);
+check('class annotations are ignored', javaAnnotated.stdout.trim() === 'ok', JSON.stringify(javaAnnotated.compileError ?? javaAnnotated.error ?? javaAnnotated.stdout));
+
+const javaScanner = runIn('java', ['import java.util.Scanner;', 'class Main {', '    public static void main(String[] args) {', '        Scanner sc = new Scanner(System.in);', '    }', '}'].join('\n'));
+check(
+  'Scanner explains the Inputs panel',
+  (javaScanner.compileError?.message ?? javaScanner.error ?? '').includes('Inputs panel'),
+  JSON.stringify(javaScanner.compileError ?? javaScanner.error)
+);
+
+check('for-each records the loop variable as a step', javaPasted.steps.some((s) => s.note.includes('v = ')), `${javaPasted.steps.length} steps`);
+
+/* ---------- lambdas, streams, maps and sets ---------- */
+
+const javaMain = (body: string) =>
+  [
+    'import java.util.*;',
+    'import java.util.stream.*;',
+    'public class Main {',
+    '    public static void main(String[] args) {',
+    body,
+    '    }',
+    '}',
+  ].join('\n');
+
+const streamArr = runIn('java', javaMain('        int[] a = {1, 2, 3, 4, 5};\n        int[] even = Arrays.stream(a).filter(x -> x % 2 == 0).map(x -> x * x).toArray();\n        System.out.println(Arrays.toString(even));'));
+check('stream filter + map + toArray', streamArr.stdout.includes('[4, 16]'), JSON.stringify(streamArr.compileError ?? streamArr.error ?? streamArr.stdout));
+
+const streamList = runIn('java', javaMain('        List<Integer> xs = Arrays.asList(5, 3, 8, 1);\n        List<Integer> out = xs.stream().filter(x -> x > 2).sorted().collect(Collectors.toList());\n        System.out.println(out);'));
+check('stream sorted + collect(toList)', streamList.stdout.includes('[3, 5, 8]'), JSON.stringify(streamList.compileError ?? streamList.error ?? streamList.stdout));
+
+const intStream = runIn('java', javaMain('        System.out.println(IntStream.range(1, 5).sum() + " " + IntStream.rangeClosed(1, 5).count());'));
+check('IntStream.range/rangeClosed', intStream.stdout.trim() === '10 5', JSON.stringify(intStream.compileError ?? intStream.error ?? intStream.stdout));
+
+const methodRef = runIn('java', javaMain('        List<String> names = Arrays.asList("bob", "ann");\n        names.forEach(System.out::println);'));
+check('method reference forEach', methodRef.stdout === 'bob\nann\n', JSON.stringify(methodRef.compileError ?? methodRef.error ?? methodRef.stdout));
+
+const mapBasics = runIn('java', javaMain('        Map<String, Integer> age = new HashMap<>();\n        age.put("ann", 30);\n        age.put("bob", 25);\n        System.out.println(age.get("ann") + " " + age.size() + " " + age.getOrDefault("zed", 0));\n        System.out.println(age);'));
+check('map put/get/size/getOrDefault/toString', mapBasics.stdout === '30 2 0\n{ann=30, bob=25}\n', JSON.stringify(mapBasics.compileError ?? mapBasics.error ?? mapBasics.stdout));
+
+const mapStream = runIn('java', javaMain('        Map<String, Integer> age = new HashMap<>();\n        age.put("ann", 30);\n        age.put("bob", 25);\n        System.out.println(age.keySet().stream().mapToInt(k -> age.get(k)).sum());'));
+check('keySet().stream() sums through a map', mapStream.stdout.trim() === '55', JSON.stringify(mapStream.compileError ?? mapStream.error ?? mapStream.stdout));
+
+const optMax = runIn('java', javaMain('        int[] a = {3, 9, 4};\n        System.out.println(Arrays.stream(a).max().getAsInt());'));
+check('stream max().getAsInt()', optMax.stdout.trim() === '9', JSON.stringify(optMax.compileError ?? optMax.error ?? optMax.stdout));
+
+const joining = runIn('java', javaMain('        List<String> w = Arrays.asList("a", "b", "c");\n        System.out.println(w.stream().collect(Collectors.joining("-")));'));
+check('joining with a separator string', joining.stdout.trim() === 'a-b-c', JSON.stringify(joining.compileError ?? joining.error ?? joining.stdout));
+
+const castCheck = runIn('java', javaMain('        double d = 7.9;\n        System.out.println((int) d);'));
+check('casts coerce values', castCheck.stdout.trim() === '7', JSON.stringify(castCheck.compileError ?? castCheck.error ?? castCheck.stdout));
+
+const setCheck = runIn('java', javaMain('        Set<Integer> s = new HashSet<>();\n        s.add(1);\n        s.add(1);\n        s.add(2);\n        System.out.println(s.size() + " " + s);'));
+check('a Set keeps one of each value', setCheck.stdout.trim() === '2 [1, 2]', JSON.stringify(setCheck.compileError ?? setCheck.error ?? setCheck.stdout));
+
+const literalOps = runIn('java', javaMain('        System.out.println("-");\n        System.out.println("(" + ")");'));
+check('string literals that look like operators still print', literalOps.stdout === '-\n()\n', JSON.stringify(literalOps.compileError ?? literalOps.error ?? literalOps.stdout));
+
+const streamsSample = runIn('java', sampleOf(SAMPLES, 'streams'));
+check('the streams sample runs', streamsSample.stdout.includes('passing: [72, 90, 65]'), JSON.stringify(streamsSample.compileError ?? streamsSample.error ?? streamsSample.stdout));
+check('the streams sample records filter steps', streamsSample.steps.some((s) => s.note.startsWith('filter →')), `${streamsSample.steps.length} steps`);
+
+// block identity: a plain write must not look like delete + insert, and it must
+// keep the hand-placed position that is keyed by the block id
+const idStore = (): IdStore => ({ current: new Map() });
+const store = idStore();
+const before = stableIds(store, 'arr', ['5', '2', '9']);
+const afterWrite = stableIds(store, 'arr', ['5', '7', '9']);
+check('a value written in place keeps its block identity', afterWrite.join() === before.join(), `${before.join()} → ${afterWrite.join()}`);
+
+const tilesOf = (ids: string[]) => ids.map((id, i) => ({ id, pos: [i, 0, 0] as [number, number, number] }));
+const writePlan = planMotions(tilesOf(before), tilesOf(afterWrite), [0, -1.5, 0]);
+check('a value write animates no removal and no entry', writePlan.removed.length === 0 && !tilesOf(afterWrite).some((t) => writePlan.motions.get(t.id)!.entering), `${writePlan.removed.length} removed`);
+
+const popStore = idStore();
+const pushIds = stableIds(popStore, 'list', ['1', '2', '3', '4']);
+const popIds = stableIds(popStore, 'list', ['1', '2', '3']);
+const popped = pushIds.filter((id) => !popIds.includes(id));
+check('a deletion retires exactly one block', popped.length === 1, JSON.stringify(popped));
+check('the remaining blocks keep their ids when a value is popped', popIds.join() === pushIds.slice(0, 3).join(), `${pushIds.join()} → ${popIds.join()}`);
+
+const insertStore = idStore();
+const baseIds = stableIds(insertStore, 'grow', ['2', '3']);
+const grownIds = stableIds(insertStore, 'grow', ['1', '2', '3']);
+check('an insertion adds exactly one block', grownIds.filter((id) => !baseIds.includes(id)).length === 1, `${baseIds.join()} → ${grownIds.join()}`);
+
+const swapStore = idStore();
+const unsortedIds = stableIds(swapStore, 'swap', ['3', '1', '2']);
+const sortedIds = stableIds(swapStore, 'swap', ['1', '3', '2']);
+check('a swap keeps both blocks and neither is retired', sortedIds.slice(0, 2).sort().join() === unsortedIds.slice(0, 2).sort().join(), `${unsortedIds.join()} → ${sortedIds.join()}`);
+
+/* ---------- rails that show sequence without reading indexes ---------- */
+
+const arrTrace = runIn('java', javaMain('        int[] a = {4, 8, 15, 16};\n        System.out.println(a.length);'));
+const arrLayout = buildLayout(arrTrace.steps[arrTrace.steps.length - 1], 720, 620);
+const cellRails = arrLayout.edges.filter((e) => e.key.startsWith('rail-'));
+check('array cells are joined by one rail per neighbour pair', cellRails.length === 3, `${cellRails.length} rails`);
+check('array rails are plain lines, not arrows', cellRails.every((e) => e.soft && !e.arrow), JSON.stringify(cellRails.map((e) => [e.soft, e.arrow])));
+check('every rail endpoint names a rendered block', cellRails.every((e) => arrLayout.nodes.some((n) => n.key === e.from) && arrLayout.nodes.some((n) => n.key === e.to)), JSON.stringify(cellRails.map((e) => [e.from, e.to])));
+
+const gridTrace = runIn('java', javaMain('        int[][] g = {{1, 2, 3}, {4, 5, 6}};\n        System.out.println(g.length);'));
+const gridLayout = buildLayout(gridTrace.steps[gridTrace.steps.length - 1], 900, 700);
+const rowLinks = gridLayout.edges.filter((e) => e.key.startsWith('row-'));
+const gridRails = gridLayout.edges.filter((e) => e.key.startsWith('rail-'));
+check('a matrix ties each row to the array that holds it', rowLinks.length === 2, `${rowLinks.length} row links`);
+const railsPerObject = new Map<string, number>();
+gridRails.forEach((e) => {
+  const objId = e.from.split('-')[1];
+  railsPerObject.set(objId, (railsPerObject.get(objId) ?? 0) + 1);
+});
+check('every matrix row is railed end to end', [...railsPerObject.values()].filter((n) => n === 2).length === 2, JSON.stringify([...railsPerObject.entries()]));
+
+/* ---------- Java language coverage ---------- */
+
+const javaOut = (code: string) => {
+  const trace = runIn('java', code);
+  return {
+    out: trace.stdout,
+    err: trace.compileError ? `compile L${trace.compileError.line}: ${trace.compileError.message}` : trace.error ?? '',
+  };
+};
+const javaCheck = (name: string, code: string, expected: string) => {
+  const r = javaOut(code);
+  check(name, !r.err && r.out === expected, r.err || JSON.stringify(r.out));
+};
+const MAIN = (body: string) => `public class Main {\n    public static void main(String[] args) {\n${body}\n    }\n}`;
+
+javaCheck(
+  'switch falls through until break',
+  MAIN('        int x = 2;\n        switch (x) {\n            case 1: System.out.println("one"); break;\n            case 2: System.out.println("two");\n            case 3: System.out.println("three"); break;\n            default: System.out.println("other");\n        }'),
+  'two\nthree\n'
+);
+javaCheck(
+  'switch arrow arms do not fall through',
+  MAIN('        for (int i = 1; i <= 4; i++) {\n            switch (i) {\n                case 1, 3 -> System.out.println(i + " odd");\n                case 2 -> System.out.println(i + " even");\n                default -> System.out.println("big");\n            }\n        }'),
+  '1 odd\n2 even\n3 odd\nbig\n'
+);
+javaCheck(
+  'switch expressions with yield',
+  MAIN('        int x = 3;\n        String s = switch (x) {\n            case 1 -> "one";\n            case 3 -> { String t = "thr" + "ee"; yield t; }\n            default -> "many";\n        };\n        System.out.println(s);'),
+  'three\n'
+);
+javaCheck(
+  'try / catch / finally / throw',
+  MAIN('        try {\n            int[] a = {1, 2};\n            System.out.println(a[2]);\n        } catch (ArrayIndexOutOfBoundsException e) {\n            System.out.println("caught: " + e.getMessage());\n        } finally {\n            System.out.println("finally");\n        }\n        try {\n            int z = 10 / 0;\n        } catch (ArithmeticException e) {\n            System.out.println("math: " + e.getMessage());\n        }\n        try {\n            throw new IllegalStateException("boom");\n        } catch (Exception e) {\n            System.out.println(e.getMessage() + " / " + e.toString());\n        }'),
+  'caught: Index 2 out of bounds for length 2\nfinally\nmath: / by zero\nboom / IllegalStateException: boom\n'
+);
+javaCheck(
+  'finally runs while an exception propagates',
+  'public class Main {\n    static int risky(int n) {\n        try {\n            if (n == 0) return 7;\n            throw new IllegalArgumentException("bad " + n);\n        } finally {\n            System.out.println("cleanup " + n);\n        }\n    }\n    public static void main(String[] args) {\n        System.out.println(risky(0));\n        try {\n            System.out.println(risky(1));\n        } catch (IllegalArgumentException | IllegalStateException e) {\n            System.out.println("outer caught " + e.getMessage());\n        }\n    }\n}',
+  'cleanup 0\n7\ncleanup 1\nouter caught bad 1\n'
+);
+{
+  const uncaught = javaOut(MAIN('        throw new IllegalStateException("nope");'));
+  check('an uncaught exception ends the trace with its message', uncaught.err.includes('IllegalStateException: nope'), uncaught.err);
+}
+javaCheck(
+  'String.format handles width, precision and hex',
+  MAIN('        System.out.println(String.format("%d-%s-%.2f-%05d-%x-%c", 7, "ab", 3.14159, 42, 255, \'z\'));'),
+  '7-ab-3.14-00042-ff-z\n'
+);
+javaCheck(
+  'StringBuilder chains, inserts and reverses',
+  MAIN('        StringBuilder sb = new StringBuilder();\n        sb.append("ab").append(12).append(\'c\');\n        sb.insert(0, ">");\n        sb.reverse();\n        System.out.println(sb.toString() + " len=" + sb.length());'),
+  'c21ba> len=6\n'
+);
+javaCheck(
+  'inheritance: fields, super ctor, super call and override dispatch',
+  'class Animal {\n    String name;\n    Animal(String name) { this.name = name; }\n    String speak() { return "..."; }\n    String describe() { return name + " says " + speak(); }\n}\nclass Dog extends Animal {\n    Dog(String name) { super(name); }\n    @Override String speak() { return "woof"; }\n    String both() { return super.speak() + "/" + speak(); }\n}\npublic class Main {\n    public static void main(String[] args) {\n        Dog d = new Dog("rex");\n        System.out.println(d.describe());\n        System.out.println(d.both());\n        System.out.println(d.name);\n    }\n}',
+  'rex says woof\n.../woof\nrex\n'
+);
+javaCheck(
+  'instanceof and casts work through the hierarchy',
+  'class Shape {}\nclass Circle extends Shape { int r = 2; }\npublic class Main {\n    public static void main(String[] args) {\n        Shape s = new Circle();\n        if (s instanceof Circle) {\n            Circle c = (Circle) s;\n            System.out.println("r=" + c.r);\n        }\n    }\n}',
+  'r=2\n'
+);
+javaCheck(
+  'interfaces and abstract classes',
+  'abstract class Task {\n    abstract String name();\n    String run() { return "run " + name(); }\n}\ninterface Named {\n    String tag();\n    default String shout() { return tag().toUpperCase(); }\n}\nclass Build extends Task implements Named {\n    String name() { return "build"; }\n    public String tag() { return "b"; }\n}\npublic class Main {\n    public static void main(String[] args) {\n        Build b = new Build();\n        System.out.println(b.run() + " " + b.shout());\n        Named n = b;\n        System.out.println(n.shout());\n    }\n}',
+  'run build B\nB\n'
+);
+javaCheck(
+  'enums: name, ordinal, values, valueOf and switch',
+  'enum Color { RED, GREEN, BLUE }\npublic class Main {\n    public static void main(String[] args) {\n        Color c = Color.GREEN;\n        System.out.println(c + " " + c.name() + " " + c.ordinal());\n        for (Color k : Color.values()) System.out.print(k + " ");\n        System.out.println();\n        switch (c) {\n            case RED -> System.out.println("red!");\n            case GREEN -> System.out.println("green!");\n            default -> System.out.println("other");\n        }\n        System.out.println(Color.valueOf("BLUE"));\n    }\n}',
+  'GREEN GREEN 1\nRED GREEN BLUE \ngreen!\nBLUE\n'
+);
+javaCheck(
+  'records get a constructor and accessors',
+  'record Point(int x, int y) {}\npublic class Main {\n    public static void main(String[] args) {\n        Point p = new Point(3, 4);\n        System.out.println(p.x() + "," + p.y() + " -> " + (p.x() + p.y()));\n    }\n}',
+  '3,4 -> 7\n'
+);
+javaCheck(
+  'map entrySet with entry getters',
+  'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        Map<String, Integer> m = new HashMap<>();\n        m.put("a", 1);\n        m.put("b", 2);\n        for (Map.Entry<String, Integer> e : m.entrySet()) {\n            System.out.println(e.getKey() + "=" + e.getValue());\n        }\n    }\n}',
+  'a=1\nb=2\n'
+);
+javaCheck(
+  'flatMap flattens nested lists',
+  'import java.util.*;\nimport java.util.stream.*;\npublic class Main {\n    public static void main(String[] args) {\n        List<List<Integer>> xs = new ArrayList<>();\n        xs.add(Arrays.asList(1, 2));\n        xs.add(Arrays.asList(3));\n        System.out.println(xs.stream().flatMap(l -> l.stream()).collect(Collectors.toList()));\n    }\n}',
+  '[1, 2, 3]\n'
+);
+{
+  const r = javaOut(
+    'import java.util.*;\nimport java.util.stream.*;\npublic class Main {\n    public static void main(String[] args) {\n        List<String> words = Arrays.asList("ann", "bob", "amy", "cat");\n        System.out.println(words.stream().collect(Collectors.groupingBy(w -> w.substring(0, 1))));\n        System.out.println(words.stream().collect(Collectors.toMap(w -> w, w -> w.length())));\n        System.out.println(words.stream().collect(Collectors.partitioningBy(w -> w.length() > 3)).keySet());\n        System.out.println(words.stream().collect(Collectors.averagingInt(w -> w.length())));\n        System.out.println(words.stream().collect(Collectors.joining(", ", "[", "]")));\n    }\n}'
+  );
+  check('groupingBy groups values by key', r.out.includes('{a=[ann, amy], b=[bob], c=[cat]}'), r.err || r.out);
+  check('toMap builds key/value pairs', r.out.includes('{ann=3, bob=3, amy=3, cat=3}'), r.err || r.out);
+  check('partitioningBy splits true/false', r.out.includes('[true, false]'), r.err || r.out);
+  check('averagingInt returns an optional average', r.out.includes('Optional[3.0]'), r.err || r.out);
+  check('joining takes separator, prefix and suffix', r.out.includes('[ann, bob, amy, cat]'), r.err || r.out);
+}
+javaCheck('int arithmetic wraps at 32 bits', MAIN('        int big = Integer.MAX_VALUE;\n        System.out.println(big + 1);\n        System.out.println(2147483647 * 2);'), '-2147483648\n-2\n');
+javaCheck(
+  'string helpers: split, startsWith, replace, repeat, toCharArray',
+  MAIN('        String s = "a,b,c";\n        System.out.println(s.split(",").length + " " + s.startsWith("a") + " " + s.replace(",", "-"));\n        System.out.println("ab".repeat(3) + " " + "hi".compareTo("ho"));\n        char[] cs = "xyz".toCharArray();\n        System.out.println(cs[1]);'),
+  '3 true a-b-c\nababab -1\ny\n'
+);
+javaCheck(
+  'Stack, Queue and PriorityQueue',
+  'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        Stack<Integer> st = new Stack<>();\n        st.push(1); st.push(2); st.push(3);\n        System.out.println(st.pop() + " " + st.peek() + " " + st.size());\n        Queue<String> q = new LinkedList<>();\n        q.add("a"); q.add("b");\n        System.out.println(q.poll() + " " + q.peek());\n        PriorityQueue<Integer> pq = new PriorityQueue<>();\n        pq.add(5); pq.add(1); pq.add(3);\n        System.out.println(pq.poll() + " " + pq.poll());\n    }\n}',
+  '3 2 2\na b\n1 3\n'
+);
+javaCheck(
+  'TreeSet and TreeMap keep their order',
+  'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        Set<String> s = new TreeSet<>();\n        s.add("c"); s.add("a"); s.add("b"); s.add("a");\n        System.out.println(s);\n        Map<String, Integer> m = new TreeMap<>();\n        m.put("z", 1); m.put("a", 2);\n        System.out.println(m);\n    }\n}',
+  '[a, b, c]\n{a=2, z=1}\n'
+);
+javaCheck(
+  'varargs methods collect their arguments',
+  'public class Main {\n    static int add(int... xs) {\n        int total = 0;\n        for (int x : xs) total += x;\n        return total;\n    }\n    public static void main(String[] args) {\n        System.out.println(add(1, 2, 3) + " " + add());\n    }\n}',
+  '6 0\n'
+);
+javaCheck(
+  'static initializer blocks run',
+  'public class Main {\n    static int base;\n    static { base = 10; }\n    public static void main(String[] args) {\n        System.out.println(base + 1);\n    }\n}',
+  '11\n'
+);
+
+javaCheck(
+  'one declaration may name several variables',
+  MAIN('        int a = 3, b = 4;\n        int[] xs = {1, 2}, ys = {5};\n        System.out.println(a + b + xs.length + ys[0]);'),
+  '14\n'
+);
+javaCheck(
+  'a for-init may declare several variables',
+  'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        int[] a = {1, 2, 3, 4, 6};\n        for (int i = 0, j = a.length - 1; i < j; i++, j--) {\n            int t = a[i]; a[i] = a[j]; a[j] = t;\n        }\n        System.out.println(Arrays.toString(a));\n    }\n}',
+  '[6, 4, 3, 2, 1]\n'
+);
+javaCheck(
+  'nested classes keep their own fields and qualified names',
+  'public class Main {\n    static class Node {\n        int value;\n        Node next;\n        Node(int value) { this.value = value; }\n    }\n    public static void main(String[] args) {\n        Node head = new Node(1);\n        head.next = new Node(2);\n        System.out.println(head.value + "->" + head.next.value);\n        Outer.Node n = new Outer.Node(9);\n        System.out.println(n.tag);\n    }\n}\nclass Outer {\n    static class Node {\n        int tag;\n        Node(int t) { tag = t; }\n    }\n}',
+  '1->2\n9\n'
+);
+javaCheck(
+  'ArrayList copies the collection it is built from',
+  'import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        List<Integer> list = new ArrayList<>(Arrays.asList(3, 1, 2));\n        Collections.sort(list);\n        System.out.println(list + " max=" + Collections.max(list));\n    }\n}',
+  '[1, 2, 3] max=3\n'
+);
+javaCheck(
+  'a method reference can call an accessor',
+  'import java.util.*;\nimport java.util.stream.*;\nrecord Person(String name, int age) {}\npublic class Main {\n    public static void main(String[] args) {\n        List<Person> people = List.of(new Person("ann", 30), new Person("bob", 17), new Person("cid", 42));\n        System.out.println(people.stream().filter(p -> p.age() >= 18).map(Person::name).collect(Collectors.toList()));\n        System.out.println(people.stream().mapToInt(p -> p.age()).sum());\n    }\n}',
+  '[ann, cid]\n89\n'
+);
+javaCheck(
+  'recursion with a memo map',
+  'import java.util.*;\npublic class Main {\n    static Map<Integer, Integer> memo = new HashMap<>();\n    static int fib(int n) {\n        if (n < 2) return n;\n        if (memo.containsKey(n)) return memo.get(n);\n        int value = fib(n - 1) + fib(n - 2);\n        memo.put(n, value);\n        return value;\n    }\n    public static void main(String[] args) {\n        System.out.println(fib(10) + " memo=" + memo.size());\n    }\n}',
+  '55 memo=9\n'
+);
+javaCheck(
+  'interfaces in a list dispatch to the concrete class',
+  'import java.util.*;\ninterface Op { int apply(int x); }\nclass Doubler implements Op { public int apply(int x) { return x * 2; } }\nclass Squarer implements Op { public int apply(int x) { return x * x; } }\npublic class Main {\n    public static void main(String[] args) {\n        List<Op> ops = new ArrayList<>();\n        ops.add(new Doubler());\n        ops.add(new Squarer());\n        for (Op op : ops) System.out.print(op.apply(4) + " ");\n        System.out.println();\n    }\n}',
+  '8 16 \n'
+);
+javaCheck(
+  'an exception thrown in recursion is caught by the caller',
+  'public class Main {\n    static int depth = 0;\n    static void walk(int n) {\n        depth++;\n        if (n == 0) throw new IllegalStateException("bottom");\n        walk(n - 1);\n    }\n    public static void main(String[] args) {\n        try {\n            walk(3);\n        } catch (IllegalStateException e) {\n            System.out.println(e.getMessage() + " after " + depth);\n        }\n    }\n}',
+  'bottom after 4\n'
+);
+
+/* ---------- comparators, literals, long and the library tail ---------- */
+
+const JAVA = (body: string) => `import java.util.*;\nimport java.util.stream.*;\npublic class Main {\n    public static void main(String[] args) {\n${body}\n    }\n}`;
+
+javaCheck(
+  'Comparator.comparing sorts by a key',
+  JAVA('        List<String> w = Arrays.asList("bb", "a", "ccc");\n        w.sort(Comparator.comparing(s -> s.length()));\n        System.out.println(w);'),
+  '[a, bb, ccc]\n'
+);
+javaCheck(
+  'comparingInt().reversed() and thenComparing',
+  JAVA('        List<String> w = Arrays.asList("bb", "a", "cc", "b");\n        w.sort(Comparator.comparingInt(String::length).reversed().thenComparing(Comparator.naturalOrder()));\n        System.out.println(w);'),
+  '[bb, cc, a, b]\n'
+);
+javaCheck(
+  'Comparator.reverseOrder() builds a max-heap',
+  JAVA('        PriorityQueue<Integer> pq = new PriorityQueue<>(Comparator.reverseOrder());\n        pq.add(1); pq.add(5); pq.add(3);\n        System.out.println(pq.poll() + " " + pq.poll());'),
+  '5 3\n'
+);
+javaCheck(
+  'a TreeMap honours a comparator',
+  JAVA('        Map<String, Integer> m = new TreeMap<>(Comparator.reverseOrder());\n        m.put("a", 1); m.put("c", 3); m.put("b", 2);\n        System.out.println(m.keySet());'),
+  '[c, b, a]\n'
+);
+javaCheck(
+  'entries can be sorted by value',
+  JAVA('        Map<String, Integer> m = new HashMap<>();\n        m.put("a", 3); m.put("b", 9); m.put("c", 1);\n        m.entrySet().stream().sorted(Map.Entry.<String,Integer>comparingByValue().reversed()).forEach(e -> System.out.print(e.getKey() + " "));\n        System.out.println();'),
+  'b a c \n'
+);
+javaCheck(
+  'hex, binary and underscore literals',
+  JAVA('        int a = 0xFF;\n        int b = 0b1010;\n        int c = 1_000_000;\n        System.out.println(a + " " + b + " " + c);'),
+  '255 10 1000000\n'
+);
+javaCheck(
+  'long keeps 64-bit values',
+  JAVA('        long big = 3000000000L;\n        long small = 2L;\n        System.out.println(big + 1 + " " + small * 3 + " " + Long.parseLong("5000000000"));'),
+  '3000000001 6 5000000000\n'
+);
+javaCheck(
+  'parseInt takes a radix and parseDouble exists',
+  JAVA('        System.out.println(Integer.parseInt("ff", 16) + " " + Double.parseDouble("2.5") * 2);'),
+  '255 5.0\n'
+);
+javaCheck(
+  'binarySearch, copyOfRange and nCopies',
+  JAVA('        int[] a = {1, 3, 5, 7};\n        System.out.println(Arrays.binarySearch(a, 5) + " " + Arrays.binarySearch(a, 4));\n        System.out.println(Arrays.toString(Arrays.copyOfRange(a, 1, 3)));\n        System.out.println(Collections.nCopies(2, "x"));'),
+  '2 -3\n[3, 5]\n[x, x]\n'
+);
+javaCheck(
+  'map compute / replace / putAll',
+  JAVA('        Map<String, Integer> m = new HashMap<>();\n        m.put("a", 1);\n        m.compute("a", (k, v) -> v + 10);\n        m.replace("a", 99);\n        m.putAll(Collections.singletonMap("b", 2));\n        System.out.println(m);'),
+  '{a=99, b=2}\n'
+);
+javaCheck(
+  'an explicit Iterator walks a list',
+  JAVA('        List<Integer> xs = Arrays.asList(1, 2, 3);\n        Iterator<Integer> it = xs.iterator();\n        while (it.hasNext()) System.out.print(it.next());\n        System.out.println();'),
+  '123\n'
+);
+javaCheck(
+  'String.matches, toBinaryString, bitCount and arraycopy',
+  JAVA('        int[] a = {1, 2, 3};\n        int[] b = new int[3];\n        System.arraycopy(a, 0, b, 0, 3);\n        System.out.println("abc123".matches("[a-z]+[0-9]+") + " " + Integer.toBinaryString(10) + " " + Integer.bitCount(7) + " " + Arrays.toString(b));'),
+  'true 1010 3 [1, 2, 3]\n'
+);
 
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

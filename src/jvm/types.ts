@@ -1,6 +1,7 @@
 /** Values that flow through the interpreter. */
 export type Val =
   | { t: 'int'; v: number }
+  | { t: 'long'; v: number }
   | { t: 'double'; v: number }
   | { t: 'bool'; v: boolean }
   | { t: 'char'; v: string }
@@ -8,12 +9,38 @@ export type Val =
   | { t: 'null' }
   | { t: 'ref'; id: number }
   | { t: 'ns'; name: string }
-  | { t: 'stream' };
+  | { t: 'out' }
+  /** lambda or method reference, resolved through the machine's closure table */
+  | { t: 'fn'; id: number }
+  /** an eagerly evaluated stream pipeline */
+  | { t: 'stream'; items: Val[] }
+  /** Optional / OptionalInt / OptionalDouble */
+  | { t: 'opt'; empty: boolean; value: Val }
+  /** the result of Collectors.* , consumed by Stream.collect */
+  | {
+      t: 'collector';
+      kind: 'list' | 'set' | 'count' | 'join' | 'group' | 'toMap' | 'partitionBy' | 'sum' | 'avg' | 'mapping';
+      sep?: string;
+      prefix?: string;
+      suffix?: string;
+      fn?: Val;
+      fn2?: Val;
+      downstream?: Val;
+    }
+  /** a thrown, and therefore catchable, Java exception */
+  | { t: 'exc'; type: string; message: string }
+  /** an enum constant; identity is (type, name) */
+  | { t: 'enum'; type: string; name: string; ordinal: number }
+  /** a Comparator built from comparing / reversed / thenComparing */
+  | { t: 'cmpr'; steps: { fn: Val | null; desc: boolean }[] };
 
 export type HeapObj =
   | { id: number; kind: 'array'; elemType: string; cells: Val[]; dims: number[] }
-  | { id: number; kind: 'list'; elemType: string; items: Val[] }
-  | { id: number; kind: 'object'; className: string; fields: { name: string; value: Val }[] };
+  | { id: number; kind: 'list'; elemType: string; items: Val[]; cmp?: Val }
+  | { id: number; kind: 'object'; className: string; fields: { name: string; value: Val }[] }
+  | { id: number; kind: 'map'; mapType: string; entries: { key: Val; value: Val }[]; cmp?: Val }
+  | { id: number; kind: 'iterator'; at: number; of: Val[] }
+  | { id: number; kind: 'builder'; text: string };
 
 /* ---------- trace shapes consumed by the UI ---------- */
 

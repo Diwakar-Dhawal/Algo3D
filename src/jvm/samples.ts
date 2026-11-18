@@ -210,6 +210,38 @@ class Main {
     }
 }`,
   },
+  {
+    id: 'streams',
+    label: 'Streams & maps',
+    blurb: 'Lambdas, filters, maps',
+    code: `import java.util.*;
+import java.util.stream.*;
+
+public class Main {
+    public static void main(String[] args) {
+        int[] scores = {72, 48, 90, 65, 55};
+
+        // filter + map + collect
+        List<Integer> passing = Arrays.stream(scores)
+            .filter(s -> s >= 60)
+            .boxed()
+            .collect(Collectors.toList());
+        System.out.println("passing: " + passing);
+
+        // keySet streamed back into a map lookup
+        Map<String, Integer> age = new HashMap<>();
+        age.put("ann", 30);
+        age.put("bob", 25);
+        age.put("cid", 41);
+
+        int total = age.keySet().stream().mapToInt(k -> age.get(k)).sum();
+        System.out.println("total age: " + total);
+
+        // method reference
+        passing.forEach(System.out::println);
+    }
+}`,
+  },
 ];
 
 export const DEFAULT_CODE = SAMPLES[0].code;

@@ -20,7 +20,7 @@ export const LANGS: Lang[] = [
     id: 'java',
     label: 'Java',
     file: 'Solution.java',
-    subset: 'arrays, ArrayList, your own classes, recursion',
+    subset: 'arrays, Lists, Maps, Sets, lambdas, streams, your own classes',
     defaultSample: 'bubble',
     samples: JAVA_SAMPLES.map((sample) => ({ id: sample.id, label: sample.label, code: sample.code })),
   },

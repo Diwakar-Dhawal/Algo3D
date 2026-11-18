@@ -7,9 +7,17 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "verify": "esbuild scripts/verify.ts --bundle --platform=node --format=cjs --outfile=.tmp/verify.cjs --log-level=error && node .tmp/verify.cjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:push": "esbuild scripts/db-push.ts --bundle --platform=node --format=cjs --outfile=.tmp/db-push.cjs --log-level=error && node .tmp/db-push.cjs",
+    "api:smoke": "esbuild scripts/api-smoke.ts --bundle --platform=node --format=cjs --outfile=.tmp/api-smoke.cjs --log-level=error && node .tmp/api-smoke.cjs",
+    "dev:api": "esbuild scripts/api-dev.ts --bundle --platform=node --format=cjs --outfile=.tmp/api-dev.cjs --log-level=error && node --env-file=.env.local .tmp/api-dev.cjs"
   },
   "dependencies": {
+    "@clerk/backend": "^3.30.0",
+    "@clerk/react": "^6.18.9",
+    "@neon/config": "^1.14.1",
+    "@neon/env": "^2.1.4",
+    "@neondatabase/serverless": "^1.2.1",
     "@react-three/drei": "9.114.3",
     "@react-three/fiber": "8.17.10",
     "react": "18.3.1",
@@ -17,6 +25,8 @@
     "three": "0.169.0"
   },
   "devDependencies": {
+    "@clerk/cli": "^1.0.0",
+    "@clerk/cli-win32-x64": "^4.2.0",
     "@types/react": "18.3.11",
     "@types/react-dom": "18.3.1",
     "@types/three": "0.169.0",

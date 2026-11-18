@@ -3,6 +3,7 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Mark } from '../topics/types';
 import { BoxValue } from './BoxValue';
+import { stableIds as resolveIds, type IdEntry } from './identity';
 import { planMotions } from './motion';
 
 /** A block that can appear, glide, swap, or vanish on the stage. */
@@ -50,65 +51,16 @@ const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t 
  * stable ids: keeps a block's identity as values are swapped/shifted
  * ------------------------------------------------------------------ */
 
-type IdEntry = { values: (string | number)[]; ids: string[] };
-let seq = 0;
+export { stableIds } from './identity';
 
 export function useIdStore() {
-  return useRef(new Map<string, IdEntry>());
-}
-
-export function stableIds(
-  store: MutableRefObject<Map<string, IdEntry>>,
-  group: string,
-  values: (string | number)[]
-): string[] {
-  const prev = store.current.get(group);
-  if (!prev) {
-    const ids = values.map(() => `t${++seq}`);
-    store.current.set(group, { values: [...values], ids });
-    return ids;
-  }
-
-  const ids: string[] = new Array(values.length).fill('');
-  const taken = new Set<number>();
-
-  // same slot, same value → same block
-  values.forEach((value, i) => {
-    if (prev.values[i] === value) {
-      ids[i] = prev.ids[i];
-      taken.add(i);
-    }
-  });
-
-  // otherwise the nearest previous block holding that value (swaps, shifts)
-  values.forEach((value, i) => {
-    if (ids[i]) return;
-    let best = -1;
-    let bestDistance = Infinity;
-    prev.values.forEach((oldValue, j) => {
-      if (taken.has(j) || oldValue !== value) return;
-      const distance = Math.abs(i - j);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = j;
-      }
-    });
-    if (best >= 0) {
-      ids[i] = prev.ids[best];
-      taken.add(best);
-    } else {
-      ids[i] = `t${++seq}`;
-    }
-  });
-
-  store.current.set(group, { values: [...values], ids: [...ids] });
-  return ids;
+  return useRef<Map<string, IdEntry>>(new Map());
 }
 
 /** Convenience wrapper for a single sequence of values. */
 export function useStableIds(values: (string | number)[]) {
   const store = useIdStore();
-  return stableIds(store, 'values', values);
+  return resolveIds(store, 'values', values);
 }
 
 /* ------------------------------------------------------------------ *
