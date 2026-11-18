@@ -38,8 +38,11 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<number | 'new' | null>(null);
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [onlyStars, setOnlyStars] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState({ title: '', description: '' });
 
   useEffect(() => {
     if (!open) return;
@@ -79,6 +82,7 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
     setNote(null);
     const result = await authApi.create({
       title: title.trim() || 'Untitled program',
+      description: description.trim(),
       language: current.language,
       code: current.code,
       inputs: current.inputs,
@@ -90,8 +94,30 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
     }
     setSaves((prev) => [result.save, ...prev]);
     setTitle('');
+    setDescription('');
     setStats(stats ? { ...stats, saves: stats.saves + 1 } : stats);
     setNote('Saved.');
+  };
+
+  const startEdit = (save: Save) => {
+    setEditing(save.id);
+    setDraft({ title: save.title, description: save.description ?? '' });
+    setNote(null);
+  };
+
+  const commitEdit = async (save: Save) => {
+    setBusy(save.id);
+    const result = await authApi.update(save.id, {
+      title: draft.title.trim() || 'Untitled program',
+      description: draft.description.trim(),
+    });
+    setBusy(null);
+    if (!result) {
+      setNote('Could not update that program.');
+      return;
+    }
+    setSaves((prev) => prev.map((item) => (item.id === save.id ? result.save : item)));
+    setEditing(null);
   };
 
   const toggleStar = async (save: Save) => {
@@ -128,11 +154,11 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
 
   return (
     <div className="drawer-scrim" onClick={onClose} role="presentation">
-      <aside className="drawer" role="dialog" aria-label="Saved programs" onClick={(event) => event.stopPropagation()}>
+      <aside className="drawer" role="dialog" aria-label="Saved codes" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-head">
           <div>
-            <span className="eyebrow">Library</span>
-            <h2>Saved programs</h2>
+            <span className="eyebrow">Your library</span>
+            <h2>Saved codes</h2>
           </div>
           <button className="drawer-close" onClick={onClose} title="Close">
             ✕
@@ -156,6 +182,7 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
         ) : (
           <>
             <div className="drawer-save">
+              <span className="eyebrow">Save the code in the editor</span>
               <input
                 className="drawer-input"
                 value={title}
@@ -164,6 +191,13 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void saveCurrent();
                 }}
+              />
+              <textarea
+                className="drawer-desc"
+                rows={2}
+                value={description}
+                placeholder="Description — what does it do, what should the reader notice? (optional)"
+                onChange={(event) => setDescription(event.target.value)}
               />
               <button className="btn-gold" onClick={saveCurrent} disabled={busy === 'new'}>
                 {busy === 'new' ? 'Saving…' : 'Save current'}
@@ -185,30 +219,63 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
               <p className="drawer-empty">Loading…</p>
             ) : shown.length === 0 ? (
               <p className="drawer-empty">
-                {onlyStars ? 'No favourites yet — tap the ☆ on a program.' : 'Nothing saved yet. Edit some code and press “Save current”.'}
+                {onlyStars
+                  ? 'No favourites yet — tap the ☆ on a program.'
+                  : 'Nothing saved yet. Edit some code and press “Save current”.'}
               </p>
             ) : (
               <ul className="save-list">
-                {shown.map((save) => (
-                  <li key={save.id} className={busy === save.id ? 'is-busy' : ''}>
-                    <button
-                      className={`star ${save.favorite ? 'on' : ''}`}
-                      onClick={() => void toggleStar(save)}
-                      title={save.favorite ? 'Remove from favourites' : 'Add to favourites'}
-                    >
-                      {save.favorite ? '★' : '☆'}
-                    </button>
-                    <button className="save-main" onClick={() => onLoad(save)} title="Open in the editor">
-                      <span className="save-title">{save.title}</span>
-                      <span className="save-meta">
-                        {LANG_LABEL[save.language] ?? save.language} · {when(save.updatedAt)} · {save.code.split('\n').length} lines
-                      </span>
-                    </button>
-                    <button className="save-del" onClick={() => void remove(save)} title="Delete">
-                      ✕
-                    </button>
-                  </li>
-                ))}
+                {shown.map((save) =>
+                  editing === save.id ? (
+                    <li key={save.id} className={`save-edit-item ${busy === save.id ? 'is-busy' : ''}`}>
+                      <input
+                        className="drawer-input"
+                        value={draft.title}
+                        placeholder="Name"
+                        onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
+                      />
+                      <textarea
+                        className="drawer-desc"
+                        rows={2}
+                        value={draft.description}
+                        placeholder="Description (optional)"
+                        onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
+                      />
+                      <div className="save-edit-actions">
+                        <button className="btn-gold" onClick={() => void commitEdit(save)} disabled={busy === save.id}>
+                          Save
+                        </button>
+                        <button className="ghost-action" onClick={() => setEditing(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </li>
+                  ) : (
+                    <li key={save.id} className={busy === save.id ? 'is-busy' : ''}>
+                      <button
+                        className={`star ${save.favorite ? 'on' : ''}`}
+                        onClick={() => void toggleStar(save)}
+                        title={save.favorite ? 'Remove from favourites' : 'Add to favourites'}
+                      >
+                        {save.favorite ? '★' : '☆'}
+                      </button>
+                      <button className="save-main" onClick={() => onLoad(save)} title="Open in the editor">
+                        <span className="save-title">{save.title}</span>
+                        {save.description ? <span className="save-desc">{save.description}</span> : null}
+                        <span className="save-meta">
+                          {LANG_LABEL[save.language] ?? save.language} · {when(save.updatedAt)} ·{' '}
+                          {save.code.split('\n').length} lines
+                        </span>
+                      </button>
+                      <button className="save-edit" onClick={() => startEdit(save)} title="Edit name and description">
+                        ✎
+                      </button>
+                      <button className="save-del" onClick={() => void remove(save)} title="Delete">
+                        ✕
+                      </button>
+                    </li>
+                  )
+                )}
               </ul>
             )}
           </>
@@ -217,4 +284,3 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
     </div>
   );
 }
-

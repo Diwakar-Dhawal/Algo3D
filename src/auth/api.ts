@@ -23,6 +23,7 @@ export type Save = {
   language: string;
   code: string;
   inputs: string;
+  description: string;
   favorite: boolean;
   createdAt: string;
   updatedAt: string;
@@ -59,9 +60,15 @@ async function call<T>(path: string, init: Init = {}): Promise<T | null> {
 export const authApi = {
   me: () => call<{ user: ApiUser | null; stats: ApiStats | null }>('/api/auth/me'),
   list: () => call<{ saves: Save[] }>('/api/saves'),
-  create: (body: { title: string; language: string; code: string; inputs: string }) =>
-    call<{ save: Save }>('/api/saves', { method: 'POST', body }),
-  update: (id: number, patch: { title?: string; code?: string; inputs?: string; favorite?: boolean }) =>
+  create: (body: {
+    title: string;
+    language: string;
+    code: string;
+    inputs: string;
+    description?: string;
+    favorite?: boolean;
+  }) => call<{ save: Save }>('/api/saves', { method: 'POST', body }),
+  update: (id: number, patch: { title?: string; description?: string; code?: string; inputs?: string; favorite?: boolean }) =>
     call<{ save: Save }>(`/api/saves/${id}`, { method: 'PATCH', body: patch }),
   remove: (id: number) => call<{ ok: boolean }>(`/api/saves/${id}`, { method: 'DELETE' }),
   record: (kind: 'run' | 'save' = 'run') => call<{ stats: ApiStats }>('/api/activity', { method: 'POST', body: { kind } }),

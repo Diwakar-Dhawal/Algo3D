@@ -14,6 +14,7 @@ type Row = {
   language: string;
   code: string;
   inputs: string;
+  description: string;
   favorite: boolean;
   created_at: string;
   updated_at: string;
@@ -25,6 +26,7 @@ const shape = (row: Row) => ({
   language: row.language,
   code: row.code,
   inputs: row.inputs,
+  description: row.description,
   favorite: row.favorite,
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
@@ -36,7 +38,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   if (req.method === 'GET' || req.method === 'HEAD') {
     const rows = (await db().query(
-      `select id, title, language, code, inputs, favorite, created_at, updated_at
+      `select id, title, language, code, inputs, description, favorite, created_at, updated_at
          from saves where user_id = $1
         order by favorite desc, updated_at desc
         limit ${MAX_SAVES}`,
@@ -47,11 +49,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   if (req.method === 'POST') {
-    const body = await readBody<{ title?: unknown; language?: unknown; code?: unknown; inputs?: unknown }>(req);
+    const body = await readBody<{
+      title?: unknown;
+      language?: unknown;
+      code?: unknown;
+      inputs?: unknown;
+      description?: unknown;
+      favorite?: unknown;
+    }>(req);
     const title = String(body.title ?? '').trim().slice(0, 120) || 'Untitled program';
     const language = String(body.language ?? 'java');
     const code = String(body.code ?? '');
     const inputs = String(body.inputs ?? '').slice(0, 20_000);
+    const description = String(body.description ?? '').trim().slice(0, 2000);
+    const favorite = body.favorite === true;
 
     if (!LANGUAGES.has(language)) {
       json(res, 400, { error: 'unknown language' });
@@ -73,10 +84,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const rows = (await db().query(
-      `insert into saves (user_id, title, language, code, inputs)
-            values ($1, $2, $3, $4, $5)
-         returning id, title, language, code, inputs, favorite, created_at, updated_at`,
-      [user.id, title, language, code, inputs]
+      `insert into saves (user_id, title, language, code, inputs, description, favorite)
+            values ($1, $2, $3, $4, $5, $6, $7)
+         returning id, title, language, code, inputs, description, favorite, created_at, updated_at`,
+      [user.id, title, language, code, inputs, description, favorite]
     )) as Row[];
     await db().query(
       `insert into activity (user_id, day, kind, count) values ($1, current_date, 'save', 1)

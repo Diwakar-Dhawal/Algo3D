@@ -11,6 +11,7 @@ import { panelVars, startResize, syncCanvases } from './components/panels';
 import type { Selected } from './topics/types';
 import { useAuth } from './auth/AuthContext';
 import { SavedDrawer } from './auth/SavedDrawer';
+import { authApi } from './auth/api';
 import type { Save } from './auth/api';
 
 const BASE_MS = 620;
@@ -91,6 +92,9 @@ export function CodeLab() {
   const sampleId = memory.sample[lang];
   const code = memory.code[lang];
   const inputs = memory.inputs[lang];
+  // once the buffer drifts from the picked sample the select must say so
+  const chosenSample = langDef.samples.find((option) => option.id === sampleId);
+  const isCustom = !chosenSample || chosenSample.code !== code;
   const [inputsDirty, setInputsDirty] = useState(false);
   const [trace, setTrace] = useState<Trace>(() => runIn(boot.lang, boot.memory.code[boot.lang], boot.memory.inputs[boot.lang]));
   const [index, setIndex] = useState(0);
@@ -103,14 +107,75 @@ export function CodeLab() {
   const [leftHidden, setLeftHidden] = useState(() => (boot.narrow ? false : (boot.saved?.leftHidden ?? false)));
   const [rightHidden, setRightHidden] = useState(() => (boot.narrow ? false : (boot.saved?.rightHidden ?? false)));
 
-  const { user, recordRun } = useAuth();
+  const { user, stats, recordRun, setStats } = useAuth();
   const [savesOpen, setSavesOpen] = useState(false);
+  /** the saved program behind the current buffer, so it can be starred in place */
+  const [loaded, setLoaded] = useState<Save | null>(null);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftDesc, setDraftDesc] = useState('');
+  const [favouriteNew, setFavouriteNew] = useState(false);
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickNote, setQuickNote] = useState<string | null>(null);
+
+  const openQuickSave = () => {
+    if (!user) {
+      setSavesOpen(true);
+      return;
+    }
+    setDraftTitle(`${langDef.label} · ${new Date().toLocaleDateString()}`);
+    setDraftDesc('');
+    setFavouriteNew(loaded?.favorite ?? false);
+    setQuickNote(null);
+    setSaveOpen(true);
+  };
+
+  const saveQuick = async () => {
+    if (!user) return;
+    setQuickBusy(true);
+    setQuickNote(null);
+    const result = await authApi.create({
+      title: draftTitle.trim() || 'Untitled program',
+      description: draftDesc.trim(),
+      language: lang,
+      code,
+      inputs,
+      favorite: favouriteNew,
+    });
+    setQuickBusy(false);
+    if (!result) {
+      setQuickNote('Could not save — try again.');
+      return;
+    }
+    setLoaded(result.save);
+    setSaveOpen(false);
+    setStats(
+      stats
+        ? { ...stats, saves: stats.saves + 1, favorites: stats.favorites + (result.save.favorite ? 1 : 0) }
+        : stats
+    );
+  };
+
+  /** stars the program that is currently open, without going through the drawer */
+  const starLoaded = async () => {
+    if (!loaded) return;
+    const next = !loaded.favorite;
+    setLoaded({ ...loaded, favorite: next });
+    const result = await authApi.update(loaded.id, { favorite: next });
+    if (!result) {
+      setLoaded(loaded);
+      return;
+    }
+    setLoaded(result.save);
+    if (stats) setStats({ ...stats, favorites: Math.max(0, stats.favorites + (next ? 1 : -1)) });
+  };
 
   const openSave = (save: Save) => {
     const target = save.language as LangId;
     setLang(target);
     setInputsDirty(true);
     remember(target, { code: save.code, inputs: save.inputs });
+    setLoaded(save);
     setSavesOpen(false);
     run(save.code, target, save.inputs);
   };
@@ -328,7 +393,15 @@ export function CodeLab() {
                 </option>
               ))}
             </select>
-            <select className="minimal-select" value={sampleId} onChange={(e) => pickSample(e.target.value)}>
+            <select
+              className="minimal-select"
+              value={isCustom ? 'custom' : sampleId}
+              onChange={(e) => {
+                if (e.target.value !== 'custom') pickSample(e.target.value);
+              }}
+              title={isCustom ? 'This buffer no longer matches a sample' : 'Load a sample program'}
+            >
+              {isCustom ? <option value="custom">Custom</option> : null}
               {langDef.samples.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
@@ -338,9 +411,9 @@ export function CodeLab() {
             <button
               className="ghost-action"
               onClick={() => setSavesOpen(true)}
-              title={user ? 'Your saved programs and favourites' : 'Sign in to save programs'}
+              title={user ? 'Open your saved codes and favourites' : 'Sign in to save codes'}
             >
-              ★ Saved
+              ★ Saved codes
             </button>
             <button className="panel-collapse" onClick={toggleLeft} title="Collapse source">
               ‹
@@ -365,6 +438,77 @@ export function CodeLab() {
           <button className="btn-gold" onClick={() => run(code)}>
             Run ▸
           </button>
+
+          <div className="save-wrap">
+            <button
+              className="ghost-action save-btn"
+              onClick={() => (saveOpen ? setSaveOpen(false) : openQuickSave())}
+              title={user ? 'Save this code (name + description)' : 'Sign in to save codes'}
+            >
+              Save
+            </button>
+            {saveOpen && user ? (
+              <>
+                <div className="save-pop-scrim" onClick={() => setSaveOpen(false)} role="presentation" />
+                <div className="save-pop" role="dialog" aria-label="Save this code">
+                  <label className="pop-field">
+                    <span>Name</span>
+                    <input
+                      className="drawer-input"
+                      value={draftTitle}
+                      onChange={(event) => setDraftTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void saveQuick();
+                      }}
+                    />
+                  </label>
+                  <label className="pop-field">
+                    <span>Description <i>optional</i></span>
+                    <textarea
+                      className="drawer-desc"
+                      rows={3}
+                      value={draftDesc}
+                      placeholder="What does this code do?"
+                      onChange={(event) => setDraftDesc(event.target.value)}
+                    />
+                  </label>
+                  <div className="pop-row">
+                    <button
+                      className={`pop-star ${favouriteNew ? 'on' : ''}`}
+                      onClick={() => setFavouriteNew((value) => !value)}
+                      title="Also mark it as a favourite"
+                    >
+                      {favouriteNew ? '★' : '☆'} Favourite
+                    </button>
+                    <button className="btn-gold" onClick={() => void saveQuick()} disabled={quickBusy}>
+                      {quickBusy ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                  {quickNote ? <p className="pop-note">{quickNote}</p> : null}
+                  <button
+                    className="link-btn pop-more"
+                    onClick={() => {
+                      setSaveOpen(false);
+                      setSavesOpen(true);
+                    }}
+                  >
+                    Open saved codes →
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          {loaded ? (
+            <button
+              className={`save-star ${loaded.favorite ? 'on' : ''}`}
+              onClick={() => void starLoaded()}
+              title={loaded.favorite ? 'Remove the open program from favourites' : 'Favourite the open program'}
+            >
+              {loaded.favorite ? '★' : '☆'}
+            </button>
+          ) : null}
+
           <span className="foot-hint">⌘/Ctrl + Enter</span>
           <span className="foot-hint right">{steps.length} steps</span>
         </div>

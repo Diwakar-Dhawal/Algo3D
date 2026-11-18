@@ -115,6 +115,9 @@ button {
 .modes {
   display: flex;
   gap: 22px;
+  /* sit next to the account on the right instead of floating mid-header */
+  margin-left: auto;
+  margin-right: 6px;
 }
 
 .mode {
@@ -2112,7 +2115,70 @@ button {
 
 .drawer-save {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
+}
+
+.drawer-save .btn-gold {
+  align-self: flex-start;
+}
+
+.drawer-desc {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.drawer-desc:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.save-desc {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.save-edit-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.save-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.save-edit-actions .btn-gold {
+  padding: 5px 14px;
+  font-size: 11px;
+}
+
+.save-edit {
+  background: none;
+  border: 0;
+  font-size: 11px;
+  color: var(--faint);
+  padding: 3px;
+}
+
+.save-edit:hover {
+  color: var(--gold-deep);
 }
 
 .drawer-input {
@@ -2268,4 +2334,103 @@ button {
   .account-out {
     display: none;
   }
+}
+
+/* ---------------- quick save (in the source footer) ---------------- */
+
+.save-wrap {
+  position: relative;
+}
+
+.save-btn {
+  padding: 6px 12px;
+}
+
+.save-pop-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.save-pop {
+  position: absolute;
+  z-index: 31;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: min(288px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(33, 28, 21, 0.18);
+}
+
+.pop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.pop-field i {
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.pop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pop-star {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pop-star.on {
+  color: var(--gold-deep);
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.pop-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--rose);
+}
+
+.pop-more {
+  align-self: flex-start;
+  font-size: 11px;
+}
+
+.save-star {
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--faint);
+}
+
+.save-star:hover {
+  color: var(--gold-deep);
+}
+
+.save-star.on {
+  color: var(--gold);
 }

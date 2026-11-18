@@ -26,10 +26,13 @@ create table if not exists saves (
   language    text        not null,
   code        text        not null,
   inputs      text        not null default '',
+  description text        not null default '',
   favorite    boolean     not null default false,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+
+alter table saves add column if not exists description text not null default '';
 
 create index if not exists saves_user_idx on saves (user_id, favorite desc, updated_at desc);
 
