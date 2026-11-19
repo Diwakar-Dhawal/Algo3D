@@ -15,6 +15,7 @@
   "dependencies": {
     "@clerk/backend": "^3.30.0",
     "@clerk/react": "^6.18.9",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@neon/config": "^1.14.1",
     "@neon/env": "^2.1.4",
     "@neondatabase/serverless": "^1.2.1",

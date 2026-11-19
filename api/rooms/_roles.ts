@@ -17,6 +17,7 @@ export type RoomRole = 'owner' | 'editor' | 'viewer';
 
 export type RoomCapability =
   | 'editCode' // change the source, inputs or language
+  | 'editBoard' // draw on the shared whiteboard
   | 'runCode' // compile + trace the program
   | 'driveTrace' // move the shared step (playbar, scrubber)
   | 'invite' // see and share both invite links
@@ -33,16 +34,16 @@ export const ROOM_ROLES: Record<RoomRole, RoleSpec> = {
   owner: {
     label: 'Owner',
     hint: 'Everything, including members, roles and the room itself.',
-    caps: ['editCode', 'runCode', 'driveTrace', 'invite', 'manageRoles', 'manageRoom'],
+    caps: ['editCode', 'editBoard', 'runCode', 'driveTrace', 'invite', 'manageRoles', 'manageRoom'],
   },
   editor: {
     label: 'Editor',
-    hint: 'Can change the code, run it and move the trace.',
-    caps: ['editCode', 'runCode', 'driveTrace'],
+    hint: 'Can change the code, run it, move the trace and draw on the board.',
+    caps: ['editCode', 'editBoard', 'runCode', 'driveTrace'],
   },
   viewer: {
     label: 'Viewer',
-    hint: 'Watches only: cannot change the code, run it or move the trace.',
+    hint: 'Watches only: cannot change the code, run it, move the trace or draw.',
     caps: [],
   },
 };

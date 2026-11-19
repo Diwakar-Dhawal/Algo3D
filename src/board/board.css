@@ -1,0 +1,131 @@
+/* ---------------- whiteboard ---------------- */
+
+.board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+}
+
+.board-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bar);
+}
+
+.board-scope {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.board-scope b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.board-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.board-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.board-status.live::before {
+  background: var(--sage);
+}
+
+.board-status.saving::before {
+  background: var(--gold);
+}
+
+.board-status.offline::before {
+  background: var(--rose);
+}
+
+.board-status.view {
+  color: var(--gold-deep);
+}
+
+.board-status.view::before {
+  background: var(--gold);
+}
+
+.board-note {
+  flex: none;
+  margin: 0;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--gold-soft);
+  color: var(--gold-deep);
+  font-size: 11px;
+}
+
+.board-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.board-canvas > * {
+  position: absolute;
+  inset: 0;
+}
+
+.board-loading {
+  display: grid;
+  place-items: center;
+  background: var(--card);
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.board-foot {
+  flex: none;
+  margin: 0;
+  padding: 6px 16px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--card);
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+@media (max-width: 680px) {
+  .board-bar {
+    padding: 8px 12px;
+    gap: 4px 10px;
+  }
+
+  .board-scope {
+    order: 3;
+    flex: 1 1 100%;
+    font-size: 11px;
+  }
+
+  .board-note {
+    padding: 6px 12px;
+  }
+
+  /* the canvas needs the height more than the hint does */
+  .board-foot {
+    display: none;
+  }
+}

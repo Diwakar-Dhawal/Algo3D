@@ -56,6 +56,15 @@ export type RoomSnapshot = {
   serverTime: number;
 };
 
+/** the shared whiteboard: Excalidraw elements plus their save version */
+export type RoomBoard = {
+  elements: unknown[];
+  version: number;
+  updatedAt: string;
+  /** a poll that was already current: elements are omitted */
+  unchanged?: boolean;
+};
+
 export type StatePatch = {
   code?: string;
   inputs?: string;

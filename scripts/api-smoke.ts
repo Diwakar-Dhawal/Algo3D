@@ -16,6 +16,7 @@ import rooms from '../api/rooms/index';
 import roomJoin from '../api/rooms/join';
 import roomItem from '../api/rooms/[id]';
 import roomState from '../api/rooms/[id]/state';
+import roomBoard from '../api/rooms/[id]/board';
 
 for (const file of ['.env.local', '.env']) {
   if (!existsSync(file)) continue;
@@ -109,6 +110,8 @@ async function run() {
     `select column_name from information_schema.columns where table_name = 'rooms'`
   )) as { column_name: string }[];
   check('rooms has both invite codes', roomColumns.some((row) => row.column_name === 'editor_code'));
+  const boardTable = (await sql.query("select to_regclass('public.room_board') as b")) as { b: string | null }[];
+  check('room_board table exists', boardTable[0]?.b !== null);
 
   // --- guests --------------------------------------------------------------
   let res = makeRes();
@@ -160,6 +163,14 @@ async function run() {
   res = makeRes();
   await roomState(makeReq('/api/rooms/1/state', { method: 'PUT', body: { index: 1 } }) as never, res as never);
   check('guest room state push is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await roomBoard(makeReq('/api/rooms/1/board') as never, res as never);
+  check('guest room board read is 401', res.statusCode === 401, `got ${res.statusCode}`);
+
+  res = makeRes();
+  await roomBoard(makeReq('/api/rooms/1/board', { method: 'PUT', body: { elements: [] } }) as never, res as never);
+  check('guest room board push is 401', res.statusCode === 401, `got ${res.statusCode}`);
 
   res = makeRes();
   await roomItem(makeReq('/api/rooms/1', { method: 'DELETE' }) as never, res as never);

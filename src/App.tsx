@@ -7,6 +7,7 @@ import { GoogleMark } from './auth/GoogleMark';
 import { RoomsProvider, useRooms } from './rooms/RoomContext';
 import { RoomsDrawer } from './rooms/RoomsDrawer';
 import { ThemeProvider, ThemeToggle } from './theme/ThemeContext';
+import { Whiteboard } from './board/Whiteboard';
 
 function Account() {
   const { user, stats, loading, available } = useAuth();
@@ -57,15 +58,15 @@ function RoomsButton({ onOpen }: { onOpen: () => void }) {
 }
 
 function Shell() {
-  const [mode, setMode] = useState<'code' | 'library'>('code');
+  const [mode, setMode] = useState<'code' | 'library' | 'board'>('code');
   const [inviteCode] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '');
   const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
   const { active } = useRooms();
   const roomId = active?.room.id ?? null;
 
-  // a room always lives in the code lab
+  // joining a room takes you to the code lab, but a board you opened stays open
   useEffect(() => {
-    if (roomId) setMode('code');
+    if (roomId) setMode((now) => (now === 'library' ? 'code' : now));
   }, [roomId]);
 
   return (
@@ -88,6 +89,10 @@ function Shell() {
             <span className="mode-full">Algorithm library</span>
             <span className="mode-short">Library</span>
           </button>
+          <button className={`mode ${mode === 'board' ? 'on' : ''}`} onClick={() => setMode('board')}>
+            <span className="mode-full">Whiteboard</span>
+            <span className="mode-short">Board</span>
+          </button>
         </nav>
 
         <ThemeToggle />
@@ -95,7 +100,13 @@ function Shell() {
         <Account />
       </header>
 
-      {mode === 'code' ? <CodeLab onOpenRooms={() => setRoomsOpen(true)} /> : <Library />}
+      {mode === 'code' ? (
+        <CodeLab onOpenRooms={() => setRoomsOpen(true)} />
+      ) : mode === 'library' ? (
+        <Library />
+      ) : (
+        <Whiteboard />
+      )}
 
       <RoomsDrawer open={roomsOpen} onClose={() => setRoomsOpen(false)} initialCode={inviteCode} />
     </div>

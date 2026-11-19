@@ -97,3 +97,13 @@ create table if not exists room_state (
   updated_by  bigint      references users(id) on delete set null,
   updated_at  timestamptz not null default now()
 );
+
+-- the shared whiteboard: Excalidraw elements for one room, versioned so two
+-- people drawing at the same time cannot silently overwrite each other
+create table if not exists room_board (
+  room_id     bigint      primary key references rooms(id) on delete cascade,
+  elements    jsonb       not null default '[]'::jsonb,
+  version     bigint      not null default 0,
+  updated_by  bigint      references users(id) on delete set null,
+  updated_at  timestamptz not null default now()
+);

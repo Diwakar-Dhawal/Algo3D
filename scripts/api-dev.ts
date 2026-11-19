@@ -13,6 +13,7 @@ import rooms from '../api/rooms/index';
 import roomJoin from '../api/rooms/join';
 import roomItem from '../api/rooms/[id]';
 import roomState from '../api/rooms/[id]/state';
+import roomBoard from '../api/rooms/[id]/board';
 
 const PORT = Number(process.env.API_PORT ?? 3000);
 
@@ -28,6 +29,7 @@ const routes: Record<string, Handler> = {
 
 /** nested paths that Vercel's file router would handle for us in production */
 const dynamicRoutes: [RegExp, Handler][] = [
+  [/^\/api\/rooms\/\d+\/board$/, roomBoard as unknown as Handler],
   [/^\/api\/rooms\/\d+\/state$/, roomState as unknown as Handler],
   [/^\/api\/rooms\/\d+$/, roomItem as unknown as Handler],
 ];

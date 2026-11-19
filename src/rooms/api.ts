@@ -1,5 +1,5 @@
 import { apiRequest } from '../auth/api';
-import type { RoomSnapshot, RoomState, RoomSummary, StatePatch } from './types';
+import type { RoomBoard, RoomSnapshot, RoomState, RoomSummary, StatePatch } from './types';
 
 type PatchBody = {
   name?: string;
@@ -20,4 +20,8 @@ export const roomsApi = {
   remove: (id: number) => apiRequest<{ ok: boolean }>(`/api/rooms/${id}`, { method: 'DELETE' }),
   push: (id: number, body: StatePatch & { baseVersion: number }) =>
     apiRequest<{ state?: RoomState; error?: string }>(`/api/rooms/${id}/state`, { method: 'PUT', body }),
+  board: (id: number, since?: number) =>
+    apiRequest<{ board?: RoomBoard }>(`/api/rooms/${id}/board${since ? `?since=${since}` : ''}`),
+  pushBoard: (id: number, body: { elements: unknown[]; baseVersion: number }) =>
+    apiRequest<{ board?: RoomBoard; error?: string }>(`/api/rooms/${id}/board`, { method: 'PUT', body }),
 };
