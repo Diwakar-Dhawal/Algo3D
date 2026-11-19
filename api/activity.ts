@@ -5,7 +5,7 @@
  * data streaks and any future rewards/badges will be computed from — today only
  * runs count towards a streak, but the table already stores every kind.
  */
-import { db, json, readBody, requireUser, statsFor } from './_lib';
+import { db, json, readBody, requireUser, statsFor } from './_lib.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const KINDS = new Set(['run', 'save', 'open']);

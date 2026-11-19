@@ -2,10 +2,8 @@
 
 import type { RoomRole } from './roles';
 
-export type RoomSettings = {
-  /** role given to someone who uses an invite code without a role of its own */
-  defaultRole?: RoomRole;
-};
+/** free-form per-room settings, kept server-side for later room options */
+export type RoomSettings = Record<string, unknown>;
 
 export type RoomSummary = {
   id: number;

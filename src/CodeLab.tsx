@@ -195,7 +195,6 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
     setLang(target);
     setInputsDirty(true);
     remember(target, { code: save.code, inputs: save.inputs });
-    if (inRoom && canType) rooms.push({ language: target, code: save.code, inputs: save.inputs });
     setLoaded(save);
     setSavesOpen(false);
     run(save.code, target, save.inputs);
@@ -295,7 +294,9 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
     setSelected(null);
     // show the result straight away instead of leaving the user on the editor
     setView('visual');
-    if (inRoom) rooms.push({ index: 0 });
+    // send the program along with the playhead, so joiners rebuild the trace
+    // from the code that was actually run rather than a stale copy
+    if (inRoom) rooms.push({ ...(mayEdit ? { language, code: source, inputs: box } : {}), index: 0 });
   };
 
   useEffect(() => {

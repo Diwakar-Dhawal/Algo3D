@@ -2,7 +2,7 @@
  * GET  /api/saves  → the signed-in user's programs (favourites first)
  * POST /api/saves  → save the current program
  */
-import { db, json, readBody, requireUser } from '../_lib';
+import { db, json, readBody, requireUser } from '../_lib.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const LANGUAGES = new Set(['java', 'python', 'javascript', 'cpp']);

@@ -6,8 +6,8 @@
  * and the role is decided here, never by the browser.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { db, json, readBody, requireUser } from '../_lib';
-import { MAX_MEMBERS } from './_util';
+import { db, json, readBody, requireUser } from '../_lib.js';
+import { MAX_MEMBERS } from './_util.js';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== 'POST') {

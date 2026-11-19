@@ -3,7 +3,6 @@ import type { RoomSnapshot, RoomState, RoomSummary, StatePatch } from './types';
 
 type PatchBody = {
   name?: string;
-  defaultRole?: string;
   member?: { userId: number; role: string };
   removeUserId?: number;
   leave?: boolean;

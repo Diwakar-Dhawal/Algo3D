@@ -32,7 +32,6 @@ type RoomsValue = {
   joinRoom: (code: string) => Promise<string | null>;
   push: (patch: StatePatch) => void;
   renameRoom: (name: string) => Promise<void>;
-  setDefaultRole: (role: RoomRole) => Promise<void>;
   setMemberRole: (userId: number, role: RoomRole) => Promise<void>;
   removeMember: (userId: number) => Promise<void>;
   leaveRoom: () => Promise<void>;
@@ -45,6 +44,8 @@ const RoomsContext = createContext<RoomsValue | null>(null);
 /** how often the open room is polled, in ms */
 const POLL_MS = 1500;
 const POLL_HIDDEN_MS = 6000;
+/** how many times a conflicting push is re-sent on the newer version */
+const MAX_REBASE = 2;
 
 export function RoomsProvider({ children }: { children: ReactNode }) {
   const { user, available } = useAuth();
@@ -58,6 +59,7 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const versionRef = useRef(0);
+  const rebaseRef = useRef(0);
   const queueRef = useRef<StatePatch>({});
   const timerRef = useRef<number | undefined>(undefined);
   const flushingRef = useRef(false);
@@ -140,16 +142,33 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
     const state = result.data?.state;
     if (result.ok && state) {
       versionRef.current = state.version;
+      rebaseRef.current = 0;
       setActive((prev) => (prev ? { ...prev, state } : prev));
       setNotice(null);
     } else if (state) {
-      // someone else moved first: adopt their version so the retry can land
+      // someone else moved first. Adopt the newer version as the base, but keep
+      // the patch: re-sending it is what stops a keystroke burst being dropped.
+      // The editor keeps its own buffer until the retry lands, so nothing jumps.
       versionRef.current = state.version;
-      setActive((prev) => (prev ? { ...prev, state } : prev));
-      if (result.status === 409) setNotice(result.data?.error ?? 'The room moved on — try again.');
-      else setNotice(result.data?.error ?? 'Your role cannot make that change.');
-    } else {
+      if (result.status === 409 && rebaseRef.current < MAX_REBASE) {
+        rebaseRef.current += 1;
+        queueRef.current = { ...patch, ...queueRef.current };
+        setNotice('Another editor was mid-change — sending yours again.');
+      } else {
+        rebaseRef.current = 0;
+        setActive((prev) => (prev ? { ...prev, state } : prev));
+        setNotice(
+          result.status === 409
+            ? 'The room kept moving, so your last change was not saved.'
+            : result.data?.error ?? 'Your role cannot make that change.'
+        );
+      }
+    } else if (result.status === 0) {
+      // a dropped connection: hold the patch and try again on the next tick
+      queueRef.current = { ...patch, ...queueRef.current };
       setNotice('Could not reach the room — retrying.');
+    } else {
+      setNotice(result.data?.error ?? 'The room did not accept that change.');
     }
     if (Object.keys(queueRef.current).length) {
       timerRef.current = window.setTimeout(() => void flush(), 150);
@@ -176,6 +195,7 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
   const openRoom = useCallback(
     async (id: number) => {
       versionRef.current = 0;
+      rebaseRef.current = 0;
       queueRef.current = {};
       const result = await roomsApi.get(id);
       if (!result.ok || !result.data) {
@@ -195,6 +215,8 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
     setActiveId(null);
     setActive(null);
     versionRef.current = 0;
+    rebaseRef.current = 0;
+    queueRef.current = {};
     void refreshList();
   }, [refreshList]);
 
@@ -226,6 +248,12 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       }
       const opened = await openRoom(result.data.roomId);
       if (!opened) return 'Could not open that room.';
+      // the code is a write credential: take it out of the address bar once used
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('room')) {
+        url.searchParams.delete('room');
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+      }
       void refreshList();
       return null;
     },
@@ -250,10 +278,6 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
   );
 
   const renameRoom = useCallback((name: string) => patchRoom({ name }), [patchRoom]);
-  const setDefaultRole = useCallback(
-    (role: RoomRole) => patchRoom({ defaultRole: role }, 'Default role updated.'),
-    [patchRoom]
-  );
   const setMemberRole = useCallback(
     (target: number, role: RoomRole) => patchRoom({ member: { userId: target, role } }),
     [patchRoom]
@@ -323,7 +347,6 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       joinRoom,
       push,
       renameRoom,
-      setDefaultRole,
       setMemberRole,
       removeMember,
       leaveRoom,
@@ -346,7 +369,6 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       joinRoom,
       push,
       renameRoom,
-      setDefaultRole,
       setMemberRole,
       removeMember,
       leaveRoom,

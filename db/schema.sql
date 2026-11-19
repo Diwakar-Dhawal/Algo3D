@@ -67,6 +67,9 @@ create table if not exists rooms (
 );
 
 alter table rooms add column if not exists editor_code text;
+-- rooms created before the editor code existed still need a working editor link
+update rooms set editor_code = 'R' || lpad(id::text, 7, '0') where editor_code is null;
+alter table rooms alter column editor_code set not null;
 create unique index if not exists rooms_editor_code_idx on rooms (editor_code);
 
 create table if not exists room_members (

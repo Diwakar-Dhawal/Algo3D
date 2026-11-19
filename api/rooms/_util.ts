@@ -4,8 +4,8 @@
  */
 import type { IncomingMessage } from 'node:http';
 import { randomInt } from 'node:crypto';
-import { db } from '../_lib';
-import type { RoomRole } from '../../src/rooms/roles';
+import { db } from '../_lib.js';
+import type { RoomRole } from './_roles.js';
 
 export const MAX_MEMBERS = 20;
 export const MAX_OWNED_ROOMS = 20;

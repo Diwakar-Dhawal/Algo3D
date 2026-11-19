@@ -6,8 +6,9 @@
  * Every check uses the role stored in room_members, never anything the client sends.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { db, json, readBody, requireUser } from '../_lib';
-import { ASSIGNABLE_ROLES, can, isRoomRole } from '../../src/rooms/roles';
+import { db, json, readBody, requireUser } from '../_lib.js';
+import { ASSIGNABLE_ROLES, can, isRoomRole } from './_roles.js';
+import type { RoomRole } from './_roles.js';
 import {
   loadMembers,
   loadMembership,
@@ -18,14 +19,14 @@ import {
   roomShape,
   stateShape,
   touchPresence,
-} from './_util';
+} from './_util.js';
 
-async function snapshot(roomId: number, role: Parameters<typeof can>[0]) {
+async function snapshot(roomId: number, role: RoomRole) {
   const row = await loadRoomRow(roomId);
   if (!row) return null;
   const [members, state] = await Promise.all([loadMembers(roomId), loadStateRow(roomId)]);
   return {
-    room: roomShape(row, role as never, can(role, 'invite')),
+    room: roomShape(row, role, can(role, 'invite')),
     members: members.map((member) => memberShape(member)),
     state: stateShape(state),
     serverTime: Date.now(),
@@ -73,7 +74,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   if (req.method === 'PATCH' || req.method === 'PUT') {
     const body = await readBody<{
       name?: unknown;
-      defaultRole?: unknown;
       member?: { userId?: unknown; role?: unknown };
       removeUserId?: unknown;
       leave?: unknown;
@@ -96,20 +96,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return;
       }
       nextName = (typeof body.name === 'string' ? body.name.trim().slice(0, 80) : '') || 'Untitled room';
-      changed = true;
-    }
-
-    let nextSettings: Record<string, unknown> | null = null;
-    if (body.defaultRole !== undefined) {
-      if (!manageRoom) {
-        json(res, 403, { error: 'only the owner can change the default role' });
-        return;
-      }
-      if (!isRoomRole(body.defaultRole) || !ASSIGNABLE_ROLES.includes(body.defaultRole)) {
-        json(res, 400, { error: 'unknown role' });
-        return;
-      }
-      nextSettings = { ...(row.settings ?? {}), defaultRole: body.defaultRole };
       changed = true;
     }
 
@@ -173,15 +159,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    if (nextName !== null || nextSettings !== null) {
-      await db().query(
-        `update rooms
-            set name = coalesce($1, name),
-                settings = coalesce($2::jsonb, settings),
-                updated_at = now()
-          where id = $3`,
-        [nextName, nextSettings ? JSON.stringify(nextSettings) : null, roomId]
-      );
+    if (nextName !== null) {
+      await db().query('update rooms set name = $1, updated_at = now() where id = $2', [nextName, roomId]);
     }
 
     if (!changed) {
@@ -189,9 +168,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    const nextRole = removeTarget === user.id ? null : role;
-    const fresh = await snapshot(roomId, nextRole as never);
-    json(res, 200, fresh ? { ...fresh, left: removeTarget === user.id } : { left: removeTarget === user.id });
+    // leaving drops the caller's membership, so there is no role left to snapshot
+    if (removeTarget === user.id) {
+      json(res, 200, { left: true });
+      return;
+    }
+    json(res, 200, (await snapshot(roomId, role)) ?? { left: false });
     return;
   }
 

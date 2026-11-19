@@ -9,8 +9,8 @@
  * keystrokes.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { db, json, readBody, requireUser } from '../../_lib';
-import { can } from '../../../src/rooms/roles';
+import { db, json, readBody, requireUser } from '../../_lib.js';
+import { can } from '../_roles.js';
 import {
   DRIVER_LEASE_MS,
   LANGUAGES,
@@ -20,7 +20,7 @@ import {
   roomIdFrom,
   stateShape,
   touchPresence,
-} from '../_util';
+} from '../_util.js';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const user = await requireUser(req, res);

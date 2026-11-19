@@ -2,7 +2,7 @@
  * Who am I? Returns the signed-in user plus their save/favourite/streak counts,
  * or { user: null } for guests. The client uses this to decide what to show.
  */
-import { currentUser, json, statsFor } from '../_lib';
+import { currentUser, json, statsFor } from '../_lib.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {

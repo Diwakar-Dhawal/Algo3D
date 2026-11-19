@@ -6,8 +6,8 @@
  * an editor and one that joins as a viewer.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { db, json, readBody, requireUser } from '../_lib';
-import { LANGUAGES, MAX_OWNED_ROOMS, memberShape, newInviteCode, roomShape, stateShape } from './_util';
+import { db, json, readBody, requireUser } from '../_lib.js';
+import { LANGUAGES, MAX_OWNED_ROOMS, memberShape, newInviteCode, roomShape, stateShape } from './_util.js';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const user = await requireUser(req, res);

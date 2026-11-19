@@ -3,7 +3,7 @@
  * DELETE /api/saves/:id  → remove it
  * Every query is scoped to the signed-in user.
  */
-import { db, json, readBody, requireUser } from '../_lib';
+import { db, json, readBody, requireUser } from '../_lib.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 type Row = {

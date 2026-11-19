@@ -169,6 +169,7 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
                 {rooms.can('manageRoom') ? (
                   <div className="room-rename">
                     <input
+                      key={active.room.name}
                       className="drawer-input"
                       defaultValue={active.room.name}
                       placeholder="Room name"
