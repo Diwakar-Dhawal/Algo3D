@@ -126,9 +126,13 @@ export function Whiteboard() {
 
       <div className="board-canvas">
         {waiting ? (
-          <div className="board-loading">Loading the shared board…</div>
+          <div className="board-loading">
+            <span className="spinner" aria-hidden="true" />
+            Loading the shared board…
+          </div>
         ) : (
-          <Suspense fallback={<div className="board-loading">Preparing the canvas…</div>}>
+          <Suspense fallback={<div className="board-loading"><span className="spinner" aria-hidden="true" />Preparing the canvas…</div>}>
+
             <BoardSurface
               key={roomId ? `room-${roomId}` : `own-${storageKey}`}
               initial={roomId ? board.elements : personal}

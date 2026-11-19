@@ -242,7 +242,10 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
             {note ? <p className="drawer-note">{note}</p> : null}
 
             {loading ? (
-              <p className="drawer-empty">Loading…</p>
+              <p className="drawer-empty drawer-loading">
+                <span className="spinner" aria-hidden="true" />
+                Loading your saved codes…
+              </p>
             ) : shown.length === 0 ? (
               <p className="drawer-empty">
                 {onlyStars

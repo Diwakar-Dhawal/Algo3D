@@ -110,8 +110,10 @@
 }
 
 .board-loading {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   background: var(--card);
   color: var(--faint);
   font-size: 12px;

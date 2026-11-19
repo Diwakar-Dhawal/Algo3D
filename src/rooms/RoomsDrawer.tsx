@@ -304,7 +304,12 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
 
                 <section className="room-block">
                   <span className="eyebrow">Your rooms</span>
-                  {rooms.listLoading && rooms.rooms.length === 0 ? <p className="drawer-empty">Loading…</p> : null}
+                  {rooms.listLoading && rooms.rooms.length === 0 ? (
+                    <p className="drawer-empty drawer-loading">
+                      <span className="spinner" aria-hidden="true" />
+                      Loading your rooms…
+                    </p>
+                  ) : null}
                   {!rooms.listLoading && rooms.rooms.length === 0 ? (
                     <p className="drawer-empty">No rooms yet — start one above.</p>
                   ) : null}

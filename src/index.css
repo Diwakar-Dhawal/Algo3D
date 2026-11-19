@@ -275,6 +275,7 @@ button {
   gap: 10px;
   padding: 11px 14px;
   border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
 }
 
 .eyebrow {
@@ -1359,8 +1360,7 @@ button {
 /* ---------------- responsive ---------------- */
 
 @media (max-width: 1080px) {
-  .splitter,
-  .panel-collapse {
+  .splitter {
     display: none !important;
   }
 
@@ -1898,6 +1898,21 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* the saved-codes button and the collapse arrow never split across rows */
+.head-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.head-actions .ghost-action,
+.head-actions .panel-collapse {
+  white-space: nowrap;
 }
 
 .panel-collapse {
@@ -2257,6 +2272,33 @@ button {
 
 .drawer-empty .btn-google {
   margin-top: 10px;
+}
+
+/* inline spinner used while saved codes / rooms are loading */
+.drawer-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid var(--line);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .save-list {
@@ -3053,5 +3095,31 @@ button {
   .rooms-btn {
     padding: 4px 7px;
     font-size: 10.5px;
+  }
+}
+
+/* below the split layout a pane fills the whole tab, so a collapsed one is a
+   compact bar instead of a tall empty column */
+@media (max-width: 1080px) {
+  .editor-panel.is-collapsed,
+  .rail.is-collapsed,
+  .side.is-collapsed {
+    justify-content: flex-start;
+  }
+
+  .panel-stub {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .panel-stub i {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0.1em;
   }
 }

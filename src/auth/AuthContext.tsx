@@ -184,7 +184,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // shell back until the question "are accounts available?" has an answer
   if (!resolved) {
     return (
-      <div style={{ padding: '48px', fontSize: '14px', opacity: 0.7 }} aria-busy="true">
+      <div style={{ padding: '48px', fontSize: '14px', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '10px' }} aria-busy="true">
+        <span className="spinner" aria-hidden="true" />
         Loading Algo3D…
       </div>
     );

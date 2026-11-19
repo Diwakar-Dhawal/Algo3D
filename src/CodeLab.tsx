@@ -140,7 +140,7 @@ export function CodeLab({
   const [speed, setSpeed] = useState(1);
   const [breakpoints, setBreakpoints] = useState<Set<number>>(() => new Set());
   const [selected, setSelected] = useState<Selected | null>(null);
-  const [left, setLeft] = useState(() => boot.saved?.left ?? (window.innerWidth < 1440 ? 320 : 384));
+  const [left, setLeft] = useState(() => Math.max(360, boot.saved?.left ?? (window.innerWidth < 1440 ? 360 : 420)));
   const [right, setRight] = useState(() => boot.saved?.right ?? (window.innerWidth < 1440 ? 288 : 328));
   const [leftHidden, setLeftHidden] = useState(() => (boot.narrow ? false : (boot.saved?.leftHidden ?? false)));
   const [rightHidden, setRightHidden] = useState(() => (boot.narrow ? false : (boot.saved?.rightHidden ?? false)));
@@ -588,16 +588,18 @@ export function CodeLab({
                 </option>
               ))}
             </select>
-            <button
-              className="ghost-action"
-              onClick={() => setSavesOpen(true)}
-              title={user ? 'Open your saved codes and favourites' : 'Sign in to save codes'}
-            >
-              ★ Saved codes
-            </button>
-            <button className="panel-collapse" onClick={toggleLeft} title="Collapse source">
-              ‹
-            </button>
+            <div className="head-tools">
+              <button
+                className="ghost-action"
+                onClick={() => setSavesOpen(true)}
+                title={user ? 'Open your saved codes and favourites' : 'Sign in to save codes'}
+              >
+                ★ Saved codes
+              </button>
+              <button className="panel-collapse" onClick={toggleLeft} title="Collapse source">
+                ‹
+              </button>
+            </div>
           </div>
         </div>
 
@@ -952,7 +954,7 @@ export function CodeLab({
         <div
           className="splitter"
           style={{ left: left - 3 }}
-          onPointerDown={(event) => startResize(event, { dir: 1, width: left, min: 260, max: 640, onWidth: setLeft })}
+          onPointerDown={(event) => startResize(event, { dir: 1, width: left, min: 360, max: 640, onWidth: setLeft })}
         />
       )}
       {!rightHidden && (
