@@ -29,6 +29,25 @@
   color: var(--ink);
 }
 
+.board-copy {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.board-copy:hover {
+  color: var(--gold-deep);
+  border-color: var(--gold);
+}
+
+.board-copied {
+  font-size: 10.5px;
+  color: var(--gold-deep);
+}
+
 .board-status {
   margin-left: auto;
   display: inline-flex;

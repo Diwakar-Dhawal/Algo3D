@@ -159,6 +159,7 @@ export function CodeLab({
     const drawing = readPersonalBoard(user?.id ?? null);
     setQuickBoard(drawing);
     setIncludeBoard(drawing.length > 0);
+    setBoardNote(null);
     setSaveOpen(true);
   };
 
@@ -917,6 +918,10 @@ export function CodeLab({
         onClose={() => setSavesOpen(false)}
         current={{ language: lang, code, inputs }}
         onLoad={openSave}
+        onDeleted={(id) => {
+          // the star in the footer must not point at a row that is gone
+          setLoaded((prev) => (prev?.id === id ? null : prev));
+        }}
       />
       </main>
     </>

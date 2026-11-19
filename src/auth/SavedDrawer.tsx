@@ -12,6 +12,8 @@ type Props = {
   onClose: () => void;
   current: { language: string; code: string; inputs: string };
   onLoad: (save: Save) => void;
+  /** so the editor can stop pointing at the program it had open */
+  onDeleted?: (id: number) => void;
 };
 
 const LANG_LABEL: Record<string, string> = {
@@ -34,7 +36,7 @@ function when(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
+export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props) {
   const { user, stats, available, setStats } = useAuth();
   const [saves, setSaves] = useState<Save[]>([]);
   const [loading, setLoading] = useState(false);
@@ -158,6 +160,7 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
       return;
     }
     setSaves((prev) => prev.filter((item) => item.id !== save.id));
+    onDeleted?.(save.id);
     setStats(
       stats
         ? { ...stats, saves: Math.max(0, stats.saves - 1), favorites: Math.max(0, stats.favorites - (save.favorite ? 1 : 0)) }

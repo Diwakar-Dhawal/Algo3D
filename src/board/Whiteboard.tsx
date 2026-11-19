@@ -11,7 +11,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext';
 import { useRooms } from '../rooms/RoomContext';
 import { can, roleLabel } from '../rooms/roles';
-import type { BoardElement } from './elements';
+import { mergeElements, type BoardElement } from './elements';
 import { personalBoardKey, readPersonalBoard, writePersonalBoard } from './storage';
 import { useRoomBoard } from './useRoomBoard';
 
@@ -29,7 +29,9 @@ export function Whiteboard() {
   const userId = user?.id ?? null;
   const storageKey = personalBoardKey(userId);
   const [personal, setPersonal] = useState<BoardElement[]>(() => readPersonalBoard(userId));
+  const [copyNote, setCopyNote] = useState<string | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
+  const copyTimer = useRef<number | undefined>(undefined);
   const personalRef = useRef<BoardElement[]>(personal);
   personalRef.current = personal;
   const userRef = useRef<number | null>(userId);
@@ -40,16 +42,45 @@ export function Whiteboard() {
     if (!roomId) setPersonal(readPersonalBoard(userId));
   }, [roomId, userId]);
 
+  // a sketch started before signing in should not vanish when the account board
+  // (which is still empty) takes over
+  useEffect(() => {
+    if (!userId || readPersonalBoard(userId).length) return;
+    const guest = readPersonalBoard(null);
+    if (!guest.length) return;
+    writePersonalBoard(userId, guest);
+    try {
+      localStorage.removeItem(personalBoardKey(null));
+    } catch {
+      /* blocked storage: the copy above is what matters */
+    }
+    if (!roomId) setPersonal(guest);
+  }, [userId, roomId]);
+
   // a pending debounce is flushed on the way out, so saving right after a
   // stroke (or switching tabs) still captures the drawing
   useEffect(
     () => () => {
-      if (!saveTimer.current) return;
-      window.clearTimeout(saveTimer.current);
-      writePersonalBoard(userRef.current, personalRef.current);
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current);
+        writePersonalBoard(userRef.current, personalRef.current);
+      }
+      if (copyTimer.current) window.clearTimeout(copyTimer.current);
     },
     []
   );
+
+  /** take the room's drawing home, without losing what is already on your board */
+  const keepCopy = useCallback(() => {
+    const room = board.elements;
+    if (!room.length) return;
+    const merged = mergeElements(personalRef.current, room);
+    writePersonalBoard(userId, merged);
+    setPersonal(merged);
+    setCopyNote(`saved to your board · ${merged.length} shapes`);
+    if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopyNote(null), 3500);
+  }, [board, userId]);
 
   const change = useCallback(
     (elements: BoardElement[]) => {
@@ -80,6 +111,12 @@ export function Whiteboard() {
             'Yours alone — sketch an algorithm or a design'
           )}
         </span>
+        {copyNote ? <span className="board-copied">{copyNote}</span> : null}
+        {roomId && board.elements.length > 0 ? (
+          <button className="board-copy" onClick={keepCopy} title="Copy this room board to your private whiteboard">
+            Keep a copy
+          </button>
+        ) : null}
         <span className={`board-status ${roomId ? (canDraw ? board.status : 'view') : 'live'}`}>{status}</span>
       </div>
 

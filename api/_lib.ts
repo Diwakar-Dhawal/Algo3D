@@ -166,7 +166,21 @@ export async function requireUser(req: IncomingMessage, res: ServerResponse): Pr
 
 /* ---------- stats (the streak comes from the activity table) ---------- */
 
-export async function statsFor(userId: number): Promise<ApiStats> {
+const UTC_DAY = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The day a visit counts for. The browser sends its own calendar date so a
+ * 1 am login in +05:30 is not filed under yesterday; anything that is not a
+ * real date within a day of UTC falls back to UTC.
+ */
+export function dayParam(value: unknown): string {
+  const utcToday = UTC_DAY();
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return utcToday;
+  const drift = Math.abs(Date.parse(`${value}T00:00:00Z`) - Date.parse(`${utcToday}T00:00:00Z`));
+  return Number.isFinite(drift) && drift <= 86_400_000 ? value : utcToday;
+}
+
+export async function statsFor(userId: number, today: string = UTC_DAY()): Promise<ApiStats> {
   const counts = (await db().query(
     `select count(*)::int as saves, count(*) filter (where favorite)::int as favorites
        from saves where user_id = $1`,
@@ -183,8 +197,7 @@ export async function statsFor(userId: number): Promise<ApiStats> {
     [userId]
   )) as { day: string; runs: number }[];
 
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   const seen = new Set(days.map((row) => row.day));
 
   // a streak survives until a whole day is missed: start at today, or yesterday

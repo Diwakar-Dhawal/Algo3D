@@ -57,8 +57,21 @@ function RoomsButton({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+type Mode = 'code' | 'library' | 'board';
+const MODE_KEY = 'algo3d:mode';
+
+function readMode(): Mode {
+  try {
+    const stored = localStorage.getItem(MODE_KEY);
+    if (stored === 'library' || stored === 'board' || stored === 'code') return stored;
+  } catch {
+    /* storage blocked: start in the lab */
+  }
+  return 'code';
+}
+
 function Shell() {
-  const [mode, setMode] = useState<'code' | 'library' | 'board'>('code');
+  const [mode, setMode] = useState<Mode>(readMode);
   const [inviteCode] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '');
   const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
   const { active } = useRooms();
@@ -68,6 +81,15 @@ function Shell() {
   useEffect(() => {
     if (roomId) setMode((now) => (now === 'library' ? 'code' : now));
   }, [roomId]);
+
+  // the tab you were on survives a reload
+  useEffect(() => {
+    try {
+      localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* storage blocked: the choice just does not persist */
+    }
+  }, [mode]);
 
   return (
     <div className="app">

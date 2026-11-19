@@ -74,8 +74,11 @@ async function call<T>(path: string, init: Init = {}): Promise<T | null> {
   return result.ok ? result.data : null;
 }
 
+/** today in this browser's timezone, so a streak follows the user's calendar */
+const localDay = (): string => new Date().toLocaleDateString('en-CA');
+
 export const authApi = {
-  me: () => call<{ user: ApiUser | null; stats: ApiStats | null }>('/api/auth/me'),
+  me: () => call<{ user: ApiUser | null; stats: ApiStats | null }>(`/api/auth/me?day=${localDay()}`),
   list: () => call<{ saves: Save[] }>('/api/saves'),
   create: (body: {
     title: string;
@@ -89,6 +92,7 @@ export const authApi = {
   update: (id: number, patch: { title?: string; description?: string; code?: string; inputs?: string; favorite?: boolean }) =>
     call<{ save: Save }>(`/api/saves/${id}`, { method: 'PATCH', body: patch }),
   remove: (id: number) => call<{ ok: boolean }>(`/api/saves/${id}`, { method: 'DELETE' }),
-  record: (kind: 'run' | 'save' = 'run') => call<{ stats: ApiStats }>('/api/activity', { method: 'POST', body: { kind } }),
+  record: (kind: 'run' | 'save' = 'run') =>
+    call<{ stats: ApiStats }>('/api/activity', { method: 'POST', body: { kind, day: localDay() } }),
 };
 
