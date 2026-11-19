@@ -209,6 +209,11 @@ button {
   color: var(--ink);
 }
 
+/* phones get shorter labels so the header stays on one line */
+.mode-short {
+  display: none;
+}
+
 .mode.on::after {
   content: '';
   position: absolute;
@@ -1432,98 +1437,10 @@ button {
   }
 }
 
-@media (max-width: 680px) {
-  .brand-text h1 {
-    font-size: 15px;
-  }
 
-  .modes {
-    gap: 14px;
-  }
 
-  .head-actions {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
+/* very narrow phones: drop the wordmark, keep the mark and the tabs */
 
-  .minimal-select {
-    max-width: 148px;
-  }
-
-  .stage-note {
-    top: 8px;
-    left: 8px;
-    right: 8px;
-    max-width: none;
-    padding: 8px 10px;
-  }
-
-  .stage-note p {
-    font-size: 11px;
-  }
-
-  .stack-trace {
-    top: 84px;
-    left: 6px;
-    bottom: 8px;
-    max-width: 48%;
-  }
-
-  .hint-float,
-  .foot-hint {
-    display: none;
-  }
-
-  .playbar {
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 8px 10px;
-  }
-
-  .scrub {
-    flex: 1 1 100%;
-    order: 9;
-    margin-top: 2px;
-  }
-
-  .speed span {
-    display: none;
-  }
-
-  .stage-empty p {
-    font-size: 15px;
-  }
-
-  /* anything typed stays at 16px so phones do not zoom in */
-  .inputs-box,
-  .inp,
-  .area {
-    font-size: 16px;
-  }
-
-  .console {
-    height: 132px;
-  }
-
-  .code-card {
-    min-height: 320px;
-  }
-
-  .editor-highlight,
-  .editor-input {
-    font-size: 12px;
-    padding: 10px 12px;
-  }
-
-  .hl-line {
-    margin: 0 -12px;
-    padding: 0 12px;
-  }
-
-  .panel-foot {
-    padding: 9px 12px;
-  }
-}
 
 /* ---------------- in-scene memory cards ---------------- */
 
@@ -2872,4 +2789,231 @@ button {
 .editor-input.is-readonly {
   cursor: default;
   caret-color: transparent;
+}
+
+/* ---------------- phone: last, so it wins over the component rules ---------------- */
+
+@media (max-width: 680px) {
+  .topbar {
+    gap: 10px;
+    padding: 8px 12px;
+  }
+
+  .brand {
+    gap: 8px;
+  }
+
+  .brand-text h1 {
+    font-size: 15px;
+  }
+
+  .modes {
+    gap: 12px;
+    margin-right: 0;
+  }
+
+  .mode {
+    padding: 6px 0;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+
+  .mode-full {
+    display: none;
+  }
+
+  .mode-short {
+    display: inline;
+  }
+
+  .account {
+    gap: 6px;
+  }
+
+  /* the streak lives in the account menu on a phone; the header needs the room */
+  .account-streak {
+    display: none;
+  }
+
+  .head-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* source header: label on top, the three controls share one row */
+  .editor-panel > .panel-head {
+    flex-wrap: wrap;
+    padding: 9px 12px;
+    row-gap: 7px;
+  }
+
+  .editor-panel > .panel-head .head-actions {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .editor-panel > .panel-head .minimal-select {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .editor-panel > .panel-head .ghost-action {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+  }
+
+  .minimal-select {
+    max-width: 148px;
+  }
+
+  .stage-note {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    max-width: none;
+    padding: 8px 10px;
+  }
+
+  .stage-note p {
+    font-size: 11px;
+  }
+
+  .stack-trace {
+    top: 84px;
+    left: 6px;
+    bottom: 8px;
+    max-width: 48%;
+  }
+
+  /* printed output owns the bottom of the stage, so the stack stops above it */
+  .stage:has(.stage-output) .stack-trace {
+    bottom: 170px;
+  }
+
+  .stage-output {
+    max-height: 128px;
+  }
+
+  .stage-error span {
+    word-break: break-word;
+  }
+
+  .hint-float,
+  .foot-hint {
+    display: none;
+  }
+
+  .playbar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .scrub {
+    flex: 1 1 100%;
+    order: 9;
+    margin-top: 2px;
+  }
+
+  .speed span {
+    display: none;
+  }
+
+  .stage-empty p {
+    font-size: 15px;
+  }
+
+  /* anything typed stays at 16px so phones do not zoom in */
+  .inputs-box,
+  .inp,
+  .area {
+    font-size: 16px;
+  }
+
+  .console {
+    height: 132px;
+  }
+
+  .code-card {
+    min-height: 320px;
+  }
+
+  .editor-highlight,
+  .editor-input {
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+
+  .hl-line {
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+
+  .panel-foot {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 9px 12px;
+  }
+
+  .room-strip {
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 11px;
+  }
+
+  .room-strip-members {
+    margin-left: 0;
+  }
+
+  .room-strip-note {
+    flex: 1 1 100%;
+    font-size: 10.5px;
+  }
+
+  .drawer {
+    padding: 16px 14px 22px;
+  }
+
+  .room-links {
+    gap: 10px;
+  }
+
+  .room-link-row .drawer-input {
+    font-size: 10px;
+  }
+
+  /* the quick-save card is a bottom sheet on phones, so it never hangs off-screen */
+  .save-pop {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 70dvh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .brand-text h1 {
+    display: none;
+  }
+
+  .mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .modes {
+    gap: 10px;
+  }
+
+  .rooms-btn {
+    padding: 4px 7px;
+    font-size: 10.5px;
+  }
 }

@@ -81,10 +81,12 @@ function Shell() {
 
         <nav className="modes">
           <button className={`mode ${mode === 'code' ? 'on' : ''}`} onClick={() => setMode('code')}>
-            Your code
+            <span className="mode-full">Your code</span>
+            <span className="mode-short">Code</span>
           </button>
           <button className={`mode ${mode === 'library' ? 'on' : ''}`} onClick={() => setMode('library')}>
-            Algorithm library
+            <span className="mode-full">Algorithm library</span>
+            <span className="mode-short">Library</span>
           </button>
         </nav>
 
