@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
+import { useStageTheme } from '../theme/store';
+import { readable } from './theme';
 
 type Props = {
   from: [number, number, number];
@@ -13,6 +15,8 @@ type Props = {
 
 /** A link (edge / pointer arrow) between two points in 3D space. */
 export function Link({ from, to, color = '#2c4a68', radius = 0.035, head = false, arrowStart = 0, arrowEnd = 0 }: Props) {
+  const theme = useStageTheme();
+  const ink = readable(color, theme);
   const { mid, quat, len } = useMemo(() => {
     const a = new THREE.Vector3(...from);
     const b = new THREE.Vector3(...to);
@@ -45,12 +49,12 @@ export function Link({ from, to, color = '#2c4a68', radius = 0.035, head = false
     <group>
       <mesh position={shaftMid} quaternion={quat}>
         <cylinderGeometry args={[radius, radius, shaftLen, 10]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.35} roughness={0.5} />
+        <meshStandardMaterial color={ink} emissive={ink} emissiveIntensity={0.35} roughness={0.5} />
       </mesh>
       {head && (
         <mesh position={tip} quaternion={quat}>
           <coneGeometry args={[radius * 3.2, radius * 7, 12]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.45} roughness={0.5} />
+          <meshStandardMaterial color={ink} emissive={ink} emissiveIntensity={0.45} roughness={0.5} />
         </mesh>
       )}
       {/* keeps the memo alive for reference point */}

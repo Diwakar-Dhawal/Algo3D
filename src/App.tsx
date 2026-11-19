@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { GoogleMark } from './auth/GoogleMark';
 import { RoomsProvider, useRooms } from './rooms/RoomContext';
 import { RoomsDrawer } from './rooms/RoomsDrawer';
+import { ThemeProvider, ThemeToggle } from './theme/ThemeContext';
 
 function Account() {
   const { user, stats, loading, available } = useAuth();
@@ -87,6 +88,7 @@ function Shell() {
           </button>
         </nav>
 
+        <ThemeToggle />
         <RoomsButton onOpen={() => setRoomsOpen(true)} />
         <Account />
       </header>
@@ -100,10 +102,12 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <RoomsProvider>
-        <Shell />
-      </RoomsProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <RoomsProvider>
+          <Shell />
+        </RoomsProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

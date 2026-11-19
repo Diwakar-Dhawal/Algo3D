@@ -13,6 +13,8 @@ import {
   type TileSpec,
 } from '../three/anim';
 import { FitCanvas } from '../three/FitCanvas';
+import { useStageTheme } from '../theme/store';
+import { stageColors } from '../three/theme';
 
 /** right-most pixel the drawing needs */
 function extentOf(layout: MemLayout): number {
@@ -39,6 +41,8 @@ type Props = {
  * the call stack is a compact text trace so every variable fits.
  */
 export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Props) {
+  const theme = useStageTheme();
+  const stage = stageColors(theme);
   const hostRef = useRef<HTMLDivElement>(null);
   const idStores = useIdStore();
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -164,9 +168,9 @@ export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Pr
           style={{ position: 'absolute', inset: 0, touchAction: 'pan-x' }}
         >
           <FitCanvas />
-          <ambientLight intensity={1.05} />
-          <hemisphereLight args={['#ffffff', '#e6dcc8', 0.55]} />
-          <directionalLight position={[5, 9, 12]} intensity={1.25} />
+          <ambientLight intensity={theme === 'dark' ? 0.85 : 1.05} />
+          <hemisphereLight args={[stage.sky, stage.ground, stage.hemi]} />
+          <directionalLight position={[5, 9, 12]} intensity={stage.key} />
           <directionalLight position={[-6, -5, 9]} intensity={0.3} />
 
           <AnimatedStage

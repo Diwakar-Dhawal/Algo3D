@@ -79,7 +79,7 @@ export function BoxValue({
           color={hover ? '#8a6d3f' : lit ? '#b08d57' : '#d3c6ad'}
         />
       </mesh>
-      <Label text={String(value)} color={labelColor} scale={labelScale} />
+      <Label text={String(value)} color={labelColor} scale={labelScale} fixed />
     </group>
   );
 }
