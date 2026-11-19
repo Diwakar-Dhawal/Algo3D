@@ -30,6 +30,78 @@ export function Editor({
 
   const lines = code.split('\n');
 
+  /** write the new buffer, then put the caret or selection back where it belongs */
+  const replace = (next: string, caret: number | [number, number]) => {
+    onChange(next);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      if (Array.isArray(caret)) {
+        ta.selectionStart = caret[0];
+        ta.selectionEnd = caret[1];
+      } else {
+        ta.selectionStart = caret;
+        ta.selectionEnd = caret;
+      }
+    });
+  };
+
+  /** the lines the selection touches */
+  const selectedLines = (start: number, end: number) => {
+    const from = code.lastIndexOf('\n', start - 1) + 1;
+    const found = code.indexOf('\n', end);
+    const to = found === -1 ? code.length : found;
+    return { from, to, lines: code.slice(from, to).split('\n') };
+  };
+
+  /** Tab indents every touched line, Shift+Tab takes two spaces back */
+  const indentLines = (ta: HTMLTextAreaElement, outdent: boolean) => {
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (!outdent && start === end) {
+      replace(`${code.slice(0, start)}  ${code.slice(end)}`, start + 2);
+      return;
+    }
+
+    const { from, to, lines } = selectedLines(start, end);
+    let first = 0;
+    let total = 0;
+    const body = lines
+      .map((line, i) => {
+        const updated = outdent ? line.replace(/^ {1,2}/, '') : `  ${line}`;
+        const delta = updated.length - line.length;
+        if (i === 0) first = delta;
+        total += delta;
+        return updated;
+      })
+      .join('\n');
+
+    const next = `${code.slice(0, from)}${body}${code.slice(to)}`;
+    const caret = Math.max(from, start + first);
+    replace(next, start === end ? caret : [caret, Math.max(caret, end + total)]);
+  };
+
+  /** Ctrl/Cmd + / comments the touched lines, and uncomments them again */
+  const comment = (ta: HTMLTextAreaElement) => {
+    const token = lang === 'python' ? '# ' : '// ';
+    const bare = token.trimEnd();
+    const { from, to, lines } = selectedLines(ta.selectionStart, ta.selectionEnd);
+    const filled = lines.filter((line) => line.trim().length > 0);
+    const allCommented = filled.length > 0 && filled.every((line) => line.trimStart().startsWith(bare));
+
+    const body = lines
+      .map((line) => {
+        if (!line.trim()) return line;
+        const pad = (line.match(/^ */) ?? [''])[0];
+        const text = line.slice(pad.length);
+        if (!allCommented) return `${pad}${token}${text}`;
+        return `${pad}${text.slice(bare.length).replace(/^ /, '')}`;
+      })
+      .join('\n');
+
+    replace(`${code.slice(0, from)}${body}${code.slice(to)}`, [from, from + body.length]);
+  };
+
   const syncScroll = () => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -102,19 +174,30 @@ export function Editor({
             const ta = e.currentTarget;
             if (e.key === 'Tab') {
               e.preventDefault();
-              const start = ta.selectionStart;
-              const end = ta.selectionEnd;
-              onChange(`${code.slice(0, start)}  ${code.slice(end)}`);
-              requestAnimationFrame(() => {
-                ta.selectionStart = start + 2;
-                ta.selectionEnd = start + 2;
-              });
+              indentLines(ta, e.shiftKey);
+              return;
+            }
+            if ((e.metaKey || e.ctrlKey) && (e.key === '/' || e.code === 'Slash')) {
+              e.preventDefault();
+              comment(ta);
+              return;
             }
             if (e.key === 'Enter') {
               const start = ta.selectionStart;
               const currentLine = code.slice(0, start).split('\n').pop() ?? '';
-              const indent = (currentLine.match(/^ */) ?? [''])[0];
-              const extra = lang === 'python' ? (/\:\s*$/.test(currentLine) ? '  ' : '') : /\{\s*$/.test(currentLine) ? '  ' : '';
+              const base = (currentLine.match(/^ */) ?? [''])[0];
+              // a line that closes a block ends the indentation one level up
+              const closing = /^[}\]\);]+$/.test(currentLine.trim());
+              const indent = closing ? base.slice(0, Math.max(0, base.length - 2)) : base;
+              const extra = closing
+                ? ''
+                : lang === 'python'
+                  ? /\:\s*$/.test(currentLine)
+                    ? '  '
+                    : ''
+                  : /\{\s*$/.test(currentLine)
+                    ? '  '
+                    : '';
               if (indent || extra) {
                 e.preventDefault();
                 const insert = `\n${indent}${extra}`;

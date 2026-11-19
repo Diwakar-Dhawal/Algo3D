@@ -21,6 +21,36 @@ import { setRoomSeed } from './rooms/seed';
 
 const BASE_MS = 620;
 
+/**
+ * The clipboard API can hang or reject (insecure context, denied permission), so
+ * give it a deadline and fall back to the old selection trick.
+ */
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await Promise.race([
+      navigator.clipboard.writeText(text),
+      new Promise((_, reject) => window.setTimeout(() => reject(new Error('clipboard timeout')), 1200)),
+    ]);
+    return true;
+  } catch {
+    // fall through to the textarea fallback
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function inputsFor(language: LangId, source: string): string {
   const suggestion = suggestInputs(language, source);
   return formatInputs(suggestion.values, suggestion.call);
@@ -146,6 +176,15 @@ export function CodeLab({
   const [quickBoard, setQuickBoard] = useState<BoardElement[]>([]);
   const [includeBoard, setIncludeBoard] = useState(false);
   const [boardNote, setBoardNote] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyCode = async () => {
+    const text = code;
+    const copiedOk = await writeClipboard(text);
+    if (!copiedOk) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
 
   const openQuickSave = () => {
     if (!user) {
@@ -348,6 +387,12 @@ export function CodeLab({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + S saves from anywhere, including inside the editor
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (!saveOpen) openQuickSave();
+        return;
+      }
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -579,7 +624,7 @@ export function CodeLab({
             <button
               className="ghost-action save-btn"
               onClick={() => (saveOpen ? setSaveOpen(false) : openQuickSave())}
-              title={user ? 'Save this code (name + description)' : 'Sign in to save codes'}
+              title={user ? 'Save this code — name, description, drawing (⌘/Ctrl + S)' : 'Sign in to save codes'}
             >
               Save
             </button>
@@ -646,6 +691,10 @@ export function CodeLab({
               </>
             ) : null}
           </div>
+
+          <button className="ghost-action" onClick={() => void copyCode()} title="Copy the whole program to the clipboard">
+            {copied ? 'Copied ✓' : 'Copy'}
+          </button>
 
           {loaded ? (
             <button
