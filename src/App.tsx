@@ -101,7 +101,7 @@ function Shell() {
       </header>
 
       {mode === 'code' ? (
-        <CodeLab onOpenRooms={() => setRoomsOpen(true)} />
+        <CodeLab onOpenRooms={() => setRoomsOpen(true)} onOpenBoard={() => setMode('board')} />
       ) : mode === 'library' ? (
         <Library />
       ) : (

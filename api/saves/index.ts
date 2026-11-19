@@ -7,6 +7,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const LANGUAGES = new Set(['java', 'python', 'javascript', 'cpp']);
 const MAX_SAVES = 300;
+/** the optional whiteboard snapshot travels with the program, same caps as a room board */
+const MAX_BOARD_ELEMENTS = 1500;
+const MAX_BOARD_CHARS = 900_000;
 
 type Row = {
   id: number;
@@ -16,6 +19,7 @@ type Row = {
   inputs: string;
   description: string;
   favorite: boolean;
+  board: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -28,6 +32,7 @@ const shape = (row: Row) => ({
   inputs: row.inputs,
   description: row.description,
   favorite: row.favorite,
+  board: Array.isArray(row.board) ? row.board : null,
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -38,7 +43,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   if (req.method === 'GET' || req.method === 'HEAD') {
     const rows = (await db().query(
-      `select id, title, language, code, inputs, description, favorite, created_at, updated_at
+      `select id, title, language, code, inputs, description, favorite, board, created_at, updated_at
          from saves where user_id = $1
         order by favorite desc, updated_at desc
         limit ${MAX_SAVES}`,
@@ -56,6 +61,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       inputs?: unknown;
       description?: unknown;
       favorite?: unknown;
+      board?: unknown;
     }>(req);
     const title = String(body.title ?? '').trim().slice(0, 120) || 'Untitled program';
     const language = String(body.language ?? 'java');
@@ -63,6 +69,20 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const inputs = String(body.inputs ?? '').slice(0, 20_000);
     const description = String(body.description ?? '').trim().slice(0, 2000);
     const favorite = body.favorite === true;
+
+    // the checkbox in the save dialog decides this: absent means "code only"
+    let board: string | null = null;
+    if (Array.isArray(body.board) && body.board.length) {
+      if (body.board.length > MAX_BOARD_ELEMENTS) {
+        json(res, 413, { error: 'the drawing is too full to save — erase a few things first' });
+        return;
+      }
+      board = JSON.stringify(body.board);
+      if (board.length > MAX_BOARD_CHARS) {
+        json(res, 413, { error: 'the drawing is too large to save' });
+        return;
+      }
+    }
 
     if (!LANGUAGES.has(language)) {
       json(res, 400, { error: 'unknown language' });
@@ -84,10 +104,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const rows = (await db().query(
-      `insert into saves (user_id, title, language, code, inputs, description, favorite)
-            values ($1, $2, $3, $4, $5, $6, $7)
-         returning id, title, language, code, inputs, description, favorite, created_at, updated_at`,
-      [user.id, title, language, code, inputs, description, favorite]
+      `insert into saves (user_id, title, language, code, inputs, description, favorite, board)
+            values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         returning id, title, language, code, inputs, description, favorite, board, created_at, updated_at`,
+      [user.id, title, language, code, inputs, description, favorite, board]
     )) as Row[];
     await db().query(
       `insert into activity (user_id, day, kind, count) values ($1, current_date, 'save', 1)

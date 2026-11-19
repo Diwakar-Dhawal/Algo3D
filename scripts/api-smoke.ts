@@ -97,6 +97,10 @@ async function run() {
   check('users.clerk_user_id exists', names.includes('clerk_user_id'), names.join(','));
   check('users.google_sub is gone', !names.includes('google_sub'));
   check('saves table exists', ((await sql.query("select to_regclass('public.saves') as t")) as { t: string | null }[])[0]?.t !== null);
+  const saveColumns = (await sql.query(
+    `select column_name from information_schema.columns where table_name = 'saves'`
+  )) as { column_name: string }[];
+  check('saves.board exists', saveColumns.some((row) => row.column_name === 'board'), saveColumns.map((r) => r.column_name).join(','));
   check('activity table exists', ((await sql.query("select to_regclass('public.activity') as t")) as { t: string | null }[])[0]?.t !== null);
   const roomTables = (await sql.query(
     "select to_regclass('public.rooms') as r, to_regclass('public.room_members') as m, to_regclass('public.room_state') as s"
@@ -188,9 +192,22 @@ async function run() {
     check('token resolves to a user row', typeof who.user?.id === 'number', JSON.stringify(who.user?.email));
 
     res = makeRes();
-    await saves(makeReq('/api/saves', { method: 'POST', auth, body: { title: 'Smoke', language: 'java', code: 'class Main {}' } }) as never, res as never);
+    await saves(
+      makeReq('/api/saves', {
+        method: 'POST',
+        auth,
+        body: {
+          title: 'Smoke',
+          language: 'java',
+          code: 'class Main {}',
+          board: [{ id: 'smoke-rect', type: 'rectangle', version: 1 }],
+        },
+      }) as never,
+      res as never
+    );
     const created = parse(res);
     check('create returns 201', res.statusCode === 201, `got ${res.statusCode}`);
+    check('create stores the drawing', created.save?.board?.length === 1, JSON.stringify(created.save?.board));
     const id = Number(created.save?.id);
 
     if (id) {

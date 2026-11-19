@@ -14,6 +14,7 @@ type Row = {
   inputs: string;
   description: string;
   favorite: boolean;
+  board: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -26,6 +27,7 @@ const shape = (row: Row) => ({
   inputs: row.inputs,
   description: row.description,
   favorite: row.favorite,
+  board: Array.isArray(row.board) ? row.board : null,
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -70,7 +72,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
               favorite    = coalesce($5, favorite),
               updated_at  = now()
         where id = $6 and user_id = $7
-        returning id, title, language, code, inputs, description, favorite, created_at, updated_at`,
+        returning id, title, language, code, inputs, description, favorite, board, created_at, updated_at`,
       [title, code, inputs, description, favorite, id, user.id]
     )) as Row[];
 

@@ -2329,6 +2329,17 @@ button {
   color: var(--faint);
 }
 
+.save-board {
+  align-self: flex-start;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+}
+
 .save-del {
   background: none;
   border: 0;
@@ -2417,6 +2428,33 @@ button {
   color: var(--gold-deep);
   border-color: var(--gold);
   background: var(--gold-soft);
+}
+
+.pop-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pop-check input {
+  margin: 2px 0 0;
+  accent-color: var(--gold);
+}
+
+.pop-check input:disabled + span {
+  color: var(--faint);
+}
+
+.draw-note {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 9px;
+  font-size: 10.5px;
+  color: var(--gold-deep);
 }
 
 .pop-note {

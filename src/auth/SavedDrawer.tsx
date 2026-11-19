@@ -4,6 +4,8 @@ import { authApi } from './api';
 import type { Save } from './api';
 import { useAuth } from './AuthContext';
 import { GoogleMark } from './GoogleMark';
+import type { BoardElement } from '../board/elements';
+import { readPersonalBoard } from '../board/storage';
 
 type Props = {
   open: boolean;
@@ -43,6 +45,16 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
   const [note, setNote] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState({ title: '', description: '' });
+  /** the private whiteboard as it stands when the drawer opens */
+  const [drawing, setDrawing] = useState<BoardElement[]>([]);
+  const [withBoard, setWithBoard] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const snapshot = readPersonalBoard(user?.id ?? null);
+    setDrawing(snapshot);
+    setWithBoard(snapshot.length > 0);
+  }, [open, user?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -86,6 +98,7 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
       language: current.language,
       code: current.code,
       inputs: current.inputs,
+      board: withBoard && drawing.length ? drawing : undefined,
     });
     setBusy(null);
     if (!result) {
@@ -96,7 +109,7 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
     setTitle('');
     setDescription('');
     setStats(stats ? { ...stats, saves: stats.saves + 1 } : stats);
-    setNote('Saved.');
+    setNote(withBoard && drawing.length ? 'Saved with your drawing.' : 'Saved.');
   };
 
   const startEdit = (save: Save) => {
@@ -199,6 +212,18 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
                 placeholder="Description — what does it do, what should the reader notice? (optional)"
                 onChange={(event) => setDescription(event.target.value)}
               />
+              <label className="pop-check">
+                <input
+                  type="checkbox"
+                  checked={withBoard}
+                  disabled={drawing.length === 0}
+                  onChange={(event) => setWithBoard(event.target.checked)}
+                />
+                <span>
+                  Include my whiteboard
+                  {drawing.length ? ` · ${drawing.length} shapes` : ' · nothing drawn yet'}
+                </span>
+              </label>
               <button className="btn-gold" onClick={saveCurrent} disabled={busy === 'new'}>
                 {busy === 'new' ? 'Saving…' : 'Save current'}
               </button>
@@ -266,6 +291,11 @@ export function SavedDrawer({ open, onClose, current, onLoad }: Props) {
                           {LANG_LABEL[save.language] ?? save.language} · {when(save.updatedAt)} ·{' '}
                           {save.code.split('\n').length} lines
                         </span>
+                        {save.board?.length ? (
+                          <span className="save-board" title="Saved with a whiteboard drawing">
+                            ✏ {save.board.length} shapes
+                          </span>
+                        ) : null}
                       </button>
                       <button className="save-edit" onClick={() => startEdit(save)} title="Edit name and description">
                         ✎

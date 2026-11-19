@@ -12,20 +12,10 @@ import { useAuth } from '../auth/AuthContext';
 import { useRooms } from '../rooms/RoomContext';
 import { can, roleLabel } from '../rooms/roles';
 import type { BoardElement } from './elements';
+import { personalBoardKey, readPersonalBoard, writePersonalBoard } from './storage';
 import { useRoomBoard } from './useRoomBoard';
 
 const BoardSurface = lazy(() => import('./BoardSurface'));
-
-function readLocal(key: string): BoardElement[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as BoardElement[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 export function Whiteboard() {
   const { user } = useAuth();
@@ -36,18 +26,27 @@ export function Whiteboard() {
   const canDraw = roomId ? can(role, 'editBoard') : true;
   const board = useRoomBoard(roomId, canDraw);
 
-  const storageKey = `algo3d:board:v1:${user?.id ?? 'guest'}`;
-  const [personal, setPersonal] = useState<BoardElement[]>(() => readLocal(storageKey));
+  const userId = user?.id ?? null;
+  const storageKey = personalBoardKey(userId);
+  const [personal, setPersonal] = useState<BoardElement[]>(() => readPersonalBoard(userId));
   const saveTimer = useRef<number | undefined>(undefined);
+  const personalRef = useRef<BoardElement[]>(personal);
+  personalRef.current = personal;
+  const userRef = useRef<number | null>(userId);
+  userRef.current = userId;
 
   // signing in or out swaps the private board; the room board is unaffected
   useEffect(() => {
-    if (!roomId) setPersonal(readLocal(storageKey));
-  }, [roomId, storageKey]);
+    if (!roomId) setPersonal(readPersonalBoard(userId));
+  }, [roomId, userId]);
 
+  // a pending debounce is flushed on the way out, so saving right after a
+  // stroke (or switching tabs) still captures the drawing
   useEffect(
     () => () => {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+      if (!saveTimer.current) return;
+      window.clearTimeout(saveTimer.current);
+      writePersonalBoard(userRef.current, personalRef.current);
     },
     []
   );
@@ -60,15 +59,9 @@ export function Whiteboard() {
       }
       setPersonal(elements);
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
-      saveTimer.current = window.setTimeout(() => {
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(elements));
-        } catch {
-          /* quota exceeded or storage blocked: the board still works this session */
-        }
-      }, 400);
+      saveTimer.current = window.setTimeout(() => writePersonalBoard(userId, elements), 400);
     },
-    [roomId, board, storageKey]
+    [roomId, board, userId]
   );
 
   const waiting = roomId !== null && !board.ready;

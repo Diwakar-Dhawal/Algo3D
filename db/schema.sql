@@ -33,6 +33,8 @@ create table if not exists saves (
 );
 
 alter table saves add column if not exists description text not null default '';
+-- optional whiteboard snapshot saved alongside the program (null = code only)
+alter table saves add column if not exists board jsonb;
 
 create index if not exists saves_user_idx on saves (user_id, favorite desc, updated_at desc);
 

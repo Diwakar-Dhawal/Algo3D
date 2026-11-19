@@ -13,6 +13,8 @@ import { useAuth } from './auth/AuthContext';
 import { SavedDrawer } from './auth/SavedDrawer';
 import { authApi } from './auth/api';
 import type { Save } from './auth/api';
+import { readPersonalBoard, writePersonalBoard } from './board/storage';
+import type { BoardElement } from './board/elements';
 import { useRooms } from './rooms/RoomContext';
 import { roleLabel } from './rooms/roles';
 import { setRoomSeed } from './rooms/seed';
@@ -73,7 +75,10 @@ const KIND_LABEL: Record<string, string> = {
   end: 'end',
 };
 
-export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
+export function CodeLab({
+  onOpenRooms,
+  onOpenBoard,
+}: { onOpenRooms?: () => void; onOpenBoard?: () => void } = {}) {
   const [boot] = useState(() => {
     const saved = loadSaved();
     // below the breakpoint the panels are tabs, so a saved collapse state would hide them
@@ -137,6 +142,10 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
   const [favouriteNew, setFavouriteNew] = useState(false);
   const [quickBusy, setQuickBusy] = useState(false);
   const [quickNote, setQuickNote] = useState<string | null>(null);
+  /** the private whiteboard, captured when the save dialog opens */
+  const [quickBoard, setQuickBoard] = useState<BoardElement[]>([]);
+  const [includeBoard, setIncludeBoard] = useState(false);
+  const [boardNote, setBoardNote] = useState<string | null>(null);
 
   const openQuickSave = () => {
     if (!user) {
@@ -147,6 +156,9 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
     setDraftDesc('');
     setFavouriteNew(loaded?.favorite ?? false);
     setQuickNote(null);
+    const drawing = readPersonalBoard(user?.id ?? null);
+    setQuickBoard(drawing);
+    setIncludeBoard(drawing.length > 0);
     setSaveOpen(true);
   };
 
@@ -161,6 +173,7 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
       code,
       inputs,
       favorite: favouriteNew,
+      board: includeBoard && quickBoard.length ? quickBoard : undefined,
     });
     setQuickBusy(false);
     if (!result) {
@@ -198,6 +211,13 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
     setLoaded(save);
     setSavesOpen(false);
     run(save.code, target, save.inputs);
+    // the drawing that travelled with the program comes back onto the board
+    if (save.board && save.board.length) {
+      writePersonalBoard(user?.id ?? null, save.board);
+      setBoardNote(`Drawing restored (${save.board.length} shapes)`);
+    } else {
+      setBoardNote(null);
+    }
   };
 
   const remember = (language: LangId, patch: Partial<{ code: string; inputs: string; sample: string }>) => {
@@ -587,6 +607,18 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
                       onChange={(event) => setDraftDesc(event.target.value)}
                     />
                   </label>
+                  <label className="pop-check">
+                    <input
+                      type="checkbox"
+                      checked={includeBoard}
+                      disabled={quickBoard.length === 0}
+                      onChange={(event) => setIncludeBoard(event.target.checked)}
+                    />
+                    <span>
+                      Include my whiteboard
+                      {quickBoard.length ? ` · ${quickBoard.length} shapes` : ' · nothing drawn yet'}
+                    </span>
+                  </label>
                   <div className="pop-row">
                     <button
                       className={`pop-star ${favouriteNew ? 'on' : ''}`}
@@ -624,6 +656,11 @@ export function CodeLab({ onOpenRooms }: { onOpenRooms?: () => void } = {}) {
             </button>
           ) : null}
 
+          {boardNote && onOpenBoard ? (
+            <button className="draw-note" onClick={onOpenBoard} title="Open the whiteboard">
+              ✏ {boardNote} · Open →
+            </button>
+          ) : null}
           <span className="foot-hint">⌘/Ctrl + Enter</span>
           <span className="foot-hint right">{steps.length} steps</span>
         </div>

@@ -17,6 +17,8 @@ export type ApiStats = {
   lastRunDay: string | null;
 };
 
+import type { BoardElement } from '../board/elements';
+
 export type Save = {
   id: number;
   title: string;
@@ -25,6 +27,8 @@ export type Save = {
   inputs: string;
   description: string;
   favorite: boolean;
+  /** the whiteboard saved with this program, or null for code only */
+  board: BoardElement[] | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -80,6 +84,7 @@ export const authApi = {
     inputs: string;
     description?: string;
     favorite?: boolean;
+    board?: BoardElement[];
   }) => call<{ save: Save }>('/api/saves', { method: 'POST', body }),
   update: (id: number, patch: { title?: string; description?: string; code?: string; inputs?: string; favorite?: boolean }) =>
     call<{ save: Save }>(`/api/saves/${id}`, { method: 'PATCH', body: patch }),
