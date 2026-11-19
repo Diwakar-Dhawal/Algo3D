@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { SignInButton } from '@clerk/react';
 import { useAuth } from '../auth/AuthContext';
+import { AccountsNotice } from '../auth/AccountsNotice';
 import { GoogleMark } from '../auth/GoogleMark';
 import { useRooms } from './RoomContext';
 import { ROOM_ROLES, roleLabel } from './roles';
@@ -106,10 +107,7 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
         </div>
 
         {!available ? (
-          <p className="drawer-empty">
-            Rooms need accounts, and accounts are not reachable from this build. Run the API locally or open the
-            deployed site.
-          </p>
+          <AccountsNotice kind="rooms" />
         ) : !user ? (
           <div className="drawer-empty">
             <p>Sign in with Google to start or join a room.</p>

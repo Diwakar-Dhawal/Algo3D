@@ -3,6 +3,7 @@ import { SignInButton } from '@clerk/react';
 import { authApi } from './api';
 import type { Save } from './api';
 import { useAuth } from './AuthContext';
+import { AccountsNotice } from './AccountsNotice';
 import { GoogleMark } from './GoogleMark';
 import type { BoardElement } from '../board/elements';
 import { readPersonalBoard } from '../board/storage';
@@ -182,10 +183,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
         </div>
 
         {!available ? (
-          <p className="drawer-empty">
-            Accounts are not reachable from this build. Run <code>npx vercel dev</code> for local API access, or open
-            the deployed site.
-          </p>
+          <AccountsNotice kind="library" />
         ) : !user ? (
           <div className="drawer-empty">
             <p>Sign in with Google to save programs across devices and star your favourites.</p>

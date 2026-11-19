@@ -8,6 +8,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { db } from '../api/_lib';
+import config from '../api/config';
 import me from '../api/auth/me';
 import saves from '../api/saves/index';
 import saveItem from '../api/saves/[id]';
@@ -119,6 +120,19 @@ async function run() {
 
   // --- guests --------------------------------------------------------------
   let res = makeRes();
+  await config(makeReq('/api/config') as never, res as never);
+  check(
+    'config hands out the public key for guests',
+    res.statusCode === 200 && parse(res).clerkPublishableKey !== undefined,
+    JSON.stringify(parse(res))
+  );
+  check(
+    'config never leaks a secret',
+    !JSON.stringify(parse(res)).includes(process.env.CLERK_SECRET_KEY ?? '\u0000'),
+    'secret key present in the response'
+  );
+
+  res = makeRes();
   await me(makeReq('/api/auth/me') as never, res as never);
   check('guest /me is user:null', parse(res).user === null, JSON.stringify(parse(res)));
 

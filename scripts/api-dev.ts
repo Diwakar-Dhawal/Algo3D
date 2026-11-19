@@ -5,6 +5,7 @@
  *   npm run dev:api
  */
 import { createServer } from 'node:http';
+import config from '../api/config';
 import me from '../api/auth/me';
 import saves from '../api/saves/index';
 import saveItem from '../api/saves/[id]';
@@ -20,6 +21,7 @@ const PORT = Number(process.env.API_PORT ?? 3000);
 type Handler = (req: never, res: never) => unknown | Promise<unknown>;
 
 const routes: Record<string, Handler> = {
+  '/api/config': config as unknown as Handler,
   '/api/auth/me': me as unknown as Handler,
   '/api/saves': saves as unknown as Handler,
   '/api/activity': activity as unknown as Handler,
