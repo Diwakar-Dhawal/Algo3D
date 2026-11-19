@@ -164,7 +164,7 @@ export async function requireUser(req: IncomingMessage, res: ServerResponse): Pr
   return user;
 }
 
-/* ---------- stats (streaks come from the activity table) ---------- */
+/* ---------- stats (the streak comes from the activity table) ---------- */
 
 export async function statsFor(userId: number): Promise<ApiStats> {
   const counts = (await db().query(
@@ -173,18 +173,22 @@ export async function statsFor(userId: number): Promise<ApiStats> {
     [userId]
   )) as { saves: number; favorites: number }[];
 
+  // every row is a day the account was seen (a login row is written by /api/auth/me),
+  // so the streak is the unbroken run of days ending today
   const days = (await db().query(
-    `select to_char(day, 'YYYY-MM-DD') as day, sum(count)::int as count
-       from activity where user_id = $1 and kind = 'run'
+    `select to_char(day, 'YYYY-MM-DD') as day,
+            coalesce(sum(count) filter (where kind = 'run'), 0)::int as runs
+       from activity where user_id = $1
       group by day order by day desc limit 400`,
     [userId]
-  )) as { day: string; count: number }[];
+  )) as { day: string; runs: number }[];
 
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  const seen = new Map(days.map((row) => [row.day, row.count]));
+  const seen = new Set(days.map((row) => row.day));
 
-  // a streak survives until a whole day is missed
+  // a streak survives until a whole day is missed: start at today, or yesterday
+  // when today's visit has not been recorded yet
   let streak = 0;
   let cursor = seen.has(today) ? today : seen.has(yesterday) ? yesterday : null;
   while (cursor && seen.has(cursor)) {
@@ -196,7 +200,7 @@ export async function statsFor(userId: number): Promise<ApiStats> {
     saves: counts[0]?.saves ?? 0,
     favorites: counts[0]?.favorites ?? 0,
     streak,
-    runsToday: seen.get(today) ?? 0,
-    lastRunDay: days[0]?.day ?? null,
+    runsToday: days.find((row) => row.day === today)?.runs ?? 0,
+    lastRunDay: days.find((row) => row.runs > 0)?.day ?? null,
   };
 }

@@ -39,7 +39,8 @@ alter table saves add column if not exists board jsonb;
 create index if not exists saves_user_idx on saves (user_id, favorite desc, updated_at desc);
 
 -- one row per user, per day, per kind of event: the raw material for streaks
--- and future rewards (runs, saves, topic visits, solved challenges, …)
+-- and future rewards (runs, saves, logins, topic visits, solved challenges, …)
+-- the streak is the unbroken run of days on which the account was seen at all
 create table if not exists activity (
   user_id  bigint  not null references users(id) on delete cascade,
   day      date    not null,

@@ -1,9 +1,9 @@
 /**
  * POST /api/activity  { kind?: 'run' | 'save' | 'open', language?: string }
  *
- * Records one event for today and returns the refreshed stats. This is the raw
- * data streaks and any future rewards/badges will be computed from — today only
- * runs count towards a streak, but the table already stores every kind.
+ * Records one event for today and returns the refreshed stats. The activity
+ * table is also what the streak is read from: any day with a row (a login is
+ * written by /api/auth/me) keeps the streak alive, a missed day breaks it.
  */
 import { db, json, readBody, requireUser, statsFor } from './_lib.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
