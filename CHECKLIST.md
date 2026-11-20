@@ -23,6 +23,8 @@ _Nothing known._
 
 ## P1 — next up
 
+- [ ] `lang` **Wire the other modes onto the stdin buffer** — Python `input()`, C++ `cin >>`, JS `readline()` can all map onto `src/lang/stdin.ts` (the Java side already reads it); needs translator support plus showing the input box for those modes. _M_
+- [ ] `rooms` **Sync the standard-input buffer into rooms** — `RoomState` carries code and inputs only, so a joiner keeps their own stdin text. _S_
 - [ ] `viz` **Auto-pick a topic view for user code** — detect arrays, grids, linked lists and trees in the trace and render the matching 3D topic view in the lab instead of only heap cards. _L_
 - [ ] `editor` **Surface run errors on the line that caused them** — the translators already return `{ line, message }`; pin it under the editor and mark the gutter. _S_
 - [ ] `lang` **JavaScript: array methods + arrow functions + template literals** — `sort`, `reverse`, `join`, `slice` desugared to loops first, then `map/filter/reduce`, then `=>` and backticks. _M_
@@ -73,6 +75,7 @@ _Nothing known._
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
 
+- [x] `lang` **Standard input for Java** — `Scanner` now works through a shared `Stdin` buffer (`next`, `nextLine`, `nextInt`, `nextLong`, `nextDouble`, `nextBoolean`, `hasNext*`, `close`), a standard-input box in the Inputs panel, a preloaded “Console input” sample, and four new checks in `npm run verify`. `4b27af7`
 - [x] `ui` **Rooms step in the tour** — step 10 spotlights the Rooms button, falling back to the ☰ menu on phones and the sign-in button when signed out; targets are now chosen in priority order, not DOM order. `2d9d6e3`
 - [x] `ui` **Tour highlights on phones** — each step now asks the lab for the pane it describes (`algo3d:show-pane`), the help step falls back to the ☰ button, and every step names its section so Back from the library/board returns to the lab. All ten steps confirmed spotlit at 390 px. `792c52d`
 - [x] `ui` **First-run tour** — ten spotlit steps across the header, editor, saved codes, run, playback, inspector, library and board; opens once per browser (`algo3d:tour`), reachable again from “Replay the tour” in the shortcut sheet. Mobile: the card falls back to a centred card when the target pane is hidden. `a0b8810`
