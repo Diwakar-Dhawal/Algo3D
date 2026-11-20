@@ -38,13 +38,13 @@ export type Stmt =
   | { t: 'vardecl'; type: TypeRef; name: string; init: Expr | null; line: number }
   | { t: 'expr'; expr: Expr; line: number }
   | { t: 'if'; cond: Expr; then: Stmt; else: Stmt | null; line: number }
-  | { t: 'while'; cond: Expr; body: Stmt; line: number }
-  | { t: 'dowhile'; cond: Expr; body: Stmt; line: number }
-  | { t: 'for'; init: Stmt | null; cond: Expr | null; update: Expr | null; body: Stmt; line: number }
-  | { t: 'foreach'; type: TypeRef; name: string; iter: Expr; body: Stmt; line: number }
+  | { t: 'while'; cond: Expr; body: Stmt; line: number; label?: string }
+  | { t: 'dowhile'; cond: Expr; body: Stmt; line: number; label?: string }
+  | { t: 'for'; init: Stmt | null; cond: Expr | null; update: Expr | null; body: Stmt; line: number; label?: string }
+  | { t: 'foreach'; type: TypeRef; name: string; iter: Expr; body: Stmt; line: number; label?: string }
   | { t: 'return'; value: Expr | null; line: number }
-  | { t: 'break'; line: number }
-  | { t: 'continue'; line: number }
+  | { t: 'break'; line: number; label?: string }
+  | { t: 'continue'; line: number; label?: string }
   | { t: 'switch'; sel: Expr; groups: SwitchGroup[]; line: number }
   | { t: 'try'; body: Stmt; catches: { type: string; param: string; body: Stmt }[]; fin: Stmt | null; line: number }
   | { t: 'throw'; value: Expr; line: number }
@@ -78,9 +78,14 @@ const PRIMITIVES = new Set([
   'int', 'long', 'short', 'byte', 'double', 'float', 'boolean', 'char', 'void', 'var',
 ]);
 
-const BIN_LEVELS = [['||'], ['&&'], ['==', '!='], ['<', '>', '<=', '>=', 'instanceof'], ['+', '-'], ['*', '/', '%']];
+// Java precedence, loosest first; `instanceof` is a keyword token
+const BIN_LEVELS = [
+  ['||'], ['&&'], ['|'], ['^'], ['&'],
+  ['==', '!='], ['<', '>', '<=', '>=', 'instanceof'],
+  ['<<', '>>', '>>>'], ['+', '-'], ['*', '/', '%'],
+];
 
-const ASSIGN_OPS = new Set(['=', '+=', '-=', '*=', '/=', '%=']);
+const ASSIGN_OPS = new Set(['=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=', '>>>=']);
 
 const MODIFIERS = new Set([
   'public', 'private', 'protected', 'static', 'final', 'abstract', 'synchronized',
@@ -345,6 +350,8 @@ class Parser {
       return;
     }
 
+    // `static <T> T first(List<T> xs)` — the type parameter changes nothing at runtime
+    if (this.at('<')) this.skipGenerics();
     const { type, name } = this.parseTypeAndName();
     if (this.at('(')) {
       const line = this.peek().line;
@@ -442,8 +449,13 @@ class Parser {
 
   private tryDecl(): { type: TypeRef; name: string } | null {
     const save = this.i;
+    // `final int x = 1;` declares an ordinary variable for the trace
+    if (this.at('final')) this.i++;
     const tok = this.peek();
-    if (tok.k !== 'id') return null;
+    if (tok.k !== 'id') {
+      this.i = save;
+      return null;
+    }
     if (!(PRIMITIVES.has(tok.v) || tok.v === 'var' || /^[A-Z]/.test(tok.v))) return null;
 
     try {
@@ -492,6 +504,18 @@ class Parser {
 
   private parseStmt(): Stmt {
     const line = this.peek().line;
+
+    // `outer: for (…)` — the label only matters to break/continue
+    if (this.peek().k === 'id' && this.peek(1).v === ':') {
+      const label = this.peek().v;
+      this.i += 2;
+      const body = this.parseStmt();
+      if (body.t === 'for' || body.t === 'while' || body.t === 'dowhile' || body.t === 'foreach') {
+        body.label = label;
+        return body;
+      }
+      return body;
+    }
 
     if (this.at('{')) return this.parseBlock();
     if (this.eat(';')) return { t: 'empty', line };
@@ -589,14 +613,16 @@ class Parser {
 
     if (this.at('break')) {
       this.i++;
+      const label = this.peek().k === 'id' && this.peek(1).v === ';' ? this.ident() : undefined;
       this.expect(';');
-      return { t: 'break', line };
+      return { t: 'break', line, label };
     }
 
     if (this.at('continue')) {
       this.i++;
+      const label = this.peek().k === 'id' && this.peek(1).v === ';' ? this.ident() : undefined;
       this.expect(';');
-      return { t: 'continue', line };
+      return { t: 'continue', line, label };
     }
 
     if (this.at('switch')) return this.parseSwitchStmt();
@@ -751,6 +777,11 @@ class Parser {
     // `instanceof` is a keyword token, not a punctuation operator
     while ((this.peek().k === 'op' || this.peek().v === 'instanceof') && BIN_LEVELS[level].includes(this.peek().v)) {
       const op = this.next().v;
+      // the right side of instanceof is a type name, not a variable
+      if (op === 'instanceof') {
+        left = { t: 'bin', op, l: left, r: { t: 'str', v: this.dottedName() } };
+        continue;
+      }
       const right = this.parseBinary(level + 1);
       left = { t: 'bin', op, l: left, r: right };
     }
@@ -765,7 +796,7 @@ class Parser {
       this.expect(')');
       return { t: 'cast', type, e: this.parseUnary() };
     }
-    if (this.at('!') || this.at('-') || this.at('+')) {
+    if (this.at('!') || this.at('-') || this.at('+') || this.at('~')) {
       const op = this.next().v;
       return { t: 'un', op, e: this.parseUnary(), prefix: true };
     }
@@ -779,6 +810,11 @@ class Parser {
   private parsePostfix(): Expr {
     let expr = this.parsePrimary();
     for (;;) {
+      // `String[]::new` — the `[]` belongs to the type, not to an index
+      if (this.at('[') && this.peek(1).v === ']' && this.peek(2).v === '::') {
+        this.i += 2;
+        continue;
+      }
       if (this.at('.')) {
         this.i++;
         // `Type.<T>method(...)`
@@ -805,7 +841,8 @@ class Parser {
       }
       if (this.at('::')) {
         this.i++;
-        const name = this.ident();
+        // `::new` is a keyword token rather than an identifier
+        const name = this.at('new') ? this.next().v : this.ident();
         expr = { t: 'mref', target: expr, name };
         continue;
       }

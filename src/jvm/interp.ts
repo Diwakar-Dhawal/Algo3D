@@ -22,7 +22,9 @@ type FnSpec =
   | { kind: 'lambda'; params: string[]; body: Expr | Stmt; block: boolean; line: number }
   | { kind: 'ref'; target: Val; name: string }
   /** builtin accessor used by Map.Entry.comparingByKey / comparingByValue */
-  | { kind: 'entry'; field: 'key' | 'value' };
+  | { kind: 'entry'; field: 'key' | 'value' }
+  /** `String[]::new` */
+  | { kind: 'newArray'; elemType: string };
 
 /** Names that behave like static namespaces even though they are not user classes. */
 const BUILTIN_NS = new Set([
@@ -50,8 +52,12 @@ class RuntimeError extends Error {
 class ReturnSignal {
   constructor(public value: Val) {}
 }
-class BreakSignal {}
-class ContinueSignal {}
+class BreakSignal {
+  constructor(public label?: string) {}
+}
+class ContinueSignal {
+  constructor(public label?: string) {}
+}
 /** a Java exception: catchable, unlike RuntimeError (an unsupported construct) */
 class JavaException {
   constructor(public type: string, public message: string) {}
@@ -563,8 +569,9 @@ class Machine {
           try {
             this.exec(s.body);
           } catch (e) {
-            if (e instanceof BreakSignal) return;
-            if (!(e instanceof ContinueSignal)) throw e;
+            const signal = this.loopSignal(e, s.label);
+            if (signal === 'break') return;
+            if (signal !== 'continue') throw e;
           }
         }
       }
@@ -574,8 +581,9 @@ class Machine {
           try {
             this.exec(s.body);
           } catch (e) {
-            if (e instanceof BreakSignal) return;
-            if (!(e instanceof ContinueSignal)) throw e;
+            const signal = this.loopSignal(e, s.label);
+            if (signal === 'break') return;
+            if (signal !== 'continue') throw e;
           }
           this.top()!.line = s.line;
           const cond = this.truthy(this.eval(s.cond));
@@ -594,8 +602,9 @@ class Machine {
           try {
             this.exec(s.body);
           } catch (e) {
-            if (e instanceof BreakSignal) return;
-            if (!(e instanceof ContinueSignal)) throw e;
+            const signal = this.loopSignal(e, s.label);
+            if (signal === 'break') return;
+            if (signal !== 'continue') throw e;
           }
           if (s.update) this.eval(s.update);
         }
@@ -622,8 +631,9 @@ class Machine {
           try {
             this.exec(s.body);
           } catch (e) {
-            if (e instanceof BreakSignal) return;
-            if (!(e instanceof ContinueSignal)) throw e;
+            const signal = this.loopSignal(e, s.label);
+            if (signal === 'break') return;
+            if (signal !== 'continue') throw e;
           }
         }
         return;
@@ -637,10 +647,10 @@ class Machine {
       }
 
       case 'break':
-        throw new BreakSignal();
+        throw new BreakSignal(s.label);
 
       case 'continue':
-        throw new ContinueSignal();
+        throw new ContinueSignal(s.label);
 
       case 'switch': {
         this.top()!.line = s.line;
@@ -668,7 +678,7 @@ class Machine {
           try {
             for (const st of s.groups[g].body) this.exec(st);
           } catch (e) {
-            if (e instanceof BreakSignal) return;
+            if (e instanceof BreakSignal && !e.label) return;
             throw e;
           }
         }
@@ -683,7 +693,7 @@ class Machine {
           } catch (e) {
             if (!(e instanceof JavaException) || !s.catches.length) throw e;
             const handler =
-              s.catches.find((c) => c.type === e.type) ??
+              s.catches.find((c) => this.catchesType(e.type, c.type)) ??
               s.catches.find((c) => ['Exception', 'Throwable', 'RuntimeException'].includes(c.type)) ??
               s.catches[0];
             const frame = this.top()!;
@@ -703,7 +713,7 @@ class Machine {
       case 'throw': {
         this.top()!.line = s.line;
         const value = this.eval(s.value);
-        const thrown = value.t === 'exc' ? value : { t: 'exc' as const, type: 'RuntimeException', message: this.str(value) };
+        const thrown = value.t === 'exc' ? value : this.asException(value);
         this.snap('stmt', `throw ${thrown.type}${thrown.message ? ': ' + thrown.message : ''}`);
         throw new JavaException(thrown.type, thrown.message);
       }
@@ -839,6 +849,11 @@ class Machine {
       }
       case 'mref': {
         const id = ++this.fnSeq;
+        // `String[]::new` is an array constructor, not a method on a value
+        if (e.name === 'new' && e.target.t === 'id') {
+          this.fns.set(id, { kind: 'newArray', elemType: e.target.name });
+          return { t: 'fn', id };
+        }
         this.fns.set(id, { kind: 'ref', target: this.eval(e.target), name: e.name });
         return { t: 'fn', id };
       }
@@ -941,6 +956,19 @@ class Machine {
       case '+':
         result = left + right;
         break;
+      // bitwise and shift operators work on 32-bit ints
+      case '&':
+        return INT(left & right);
+      case '|':
+        return INT(left | right);
+      case '^':
+        return INT(left ^ right);
+      case '<<':
+        return INT(left << (right & 31));
+      case '>>':
+        return INT(left >> (right & 31));
+      case '>>>':
+        return INT((left >>> (right & 31)) | 0);
       default:
         throw new RuntimeError(`Unsupported operator ${op}`, this.top()?.line ?? 0);
     }
@@ -966,6 +994,7 @@ class Machine {
 
   private unary(e: Extract<Expr, { t: 'un' }>): Val {
     if (e.op === '!') return BOOL(!this.truthy(this.eval(e.e)));
+    if (e.op === '~') return INT(~this.numeric(this.eval(e.e)));
     if (e.op === '-' || e.op === '+') {
       const v = this.eval(e.e);
       if (v.t === 'double') return e.op === '-' ? DBL(-v.v) : v;
@@ -1173,7 +1202,7 @@ class Machine {
   /* ---------- construction ---------- */
 
   private construct(e: Extract<Expr, { t: 'new' }>): Val {
-    if (e.init) return this.arrayInit(e.init, e.name || 'int');
+    if (e.init) return this.arrayInit(e.init, e.name || this.inferElemType(e.init));
 
     if (e.dims.length > 0) {
       const sizes = e.dims.map((d) => (d ? this.num(this.eval(d)) : 0));
@@ -1290,6 +1319,24 @@ class Machine {
     return ref;
   }
 
+  /** `{'h', 'i'}` is a char[] even though the literal names no type */
+  private inferElemType(items: Expr[]): string {
+    const first = items[0];
+    if (!first) return 'int';
+    switch (first.t) {
+      case 'char':
+        return 'char';
+      case 'str':
+        return 'String';
+      case 'bool':
+        return 'boolean';
+      case 'num':
+        return first.isDouble ? 'double' : first.isLong ? 'long' : 'int';
+      default:
+        return 'Object';
+    }
+  }
+
   private arrayInit(items: Expr[], elemType: string): Val {
     const cells = items.map((item) => {
       if (item.t === 'new' && item.init) return this.arrayInit(item.init, elemType);
@@ -1365,6 +1412,8 @@ class Machine {
     }
 
     if (!failed) {
+      // the declared return type decides the value's kind, so `double area()` keeps 9.0
+      if (!method.isCtor && result.t !== 'null') result = this.coerce(method.ret, result);
       this.snap('return', `return${result.t === 'null' ? ' (void)' : ' ' + this.text(result)}`);
       this.frames.pop();
     }
@@ -1378,7 +1427,18 @@ class Machine {
     // super(...) runs the parent constructor on the object being built
     if (callee.t === 'super') {
       const cls = this.classMap.get(frame.owner);
-      const parent = cls?.parent ? this.classMap.get(cls.parent) : undefined;
+      const parentName = cls?.parent;
+      const parent = parentName ? this.classMap.get(parentName) : undefined;
+      // `class Boom extends RuntimeException` — super(msg) only records the message
+      if (!parent && parentName && BUILTIN_EXCEPTIONS.has(parentName) && frame.thisVal?.t === 'ref') {
+        const obj = this.heap.get(frame.thisVal.id);
+        if (obj?.kind === 'object') {
+          const message = args.length ? this.str(this.eval(args[0])) : '';
+          obj.fields = obj.fields.filter((f) => f.name !== 'message');
+          obj.fields.push({ name: 'message', value: STR(message) });
+        }
+        return NULLV;
+      }
       if (!parent) throw new RuntimeError(`${cls?.name ?? 'this'} has no superclass`, frame.line);
       const ctor = this.findCtor(parent, args.length);
       if (!ctor) throw new RuntimeError(`no constructor ${parent.name}(${args.length} args)`, frame.line);
@@ -1493,6 +1553,10 @@ class Machine {
         case 'hashCode':
           return INT(receiver.name.length + receiver.ordinal);
       }
+      // an enum can declare its own methods: `Color.GREEN.code()`
+      const enumCls = this.classMap.get(receiver.type);
+      const declared = enumCls ? this.findMethod(enumCls, name, args.length) : null;
+      if (declared) return this.invoke(declared.cls, declared.method, receiver, args);
       throw new RuntimeError(`Enum.${name}() is not supported`, line);
     }
 
@@ -1668,6 +1732,26 @@ class Machine {
         return DBL(Math.tan(this.numeric(args[0])));
       case 'Math.cbrt':
         return DBL(Math.cbrt(this.numeric(args[0])));
+      case 'Math.signum':
+        return DBL(Math.sign(this.numeric(args[0])));
+      case 'Math.hypot':
+        return DBL(Math.hypot(this.numeric(args[0]), this.numeric(args[1])));
+      case 'Math.asin':
+        return DBL(Math.asin(this.numeric(args[0])));
+      case 'Math.acos':
+        return DBL(Math.acos(this.numeric(args[0])));
+      case 'Math.atan':
+        return DBL(Math.atan(this.numeric(args[0])));
+      case 'Math.atan2':
+        return DBL(Math.atan2(this.numeric(args[0]), this.numeric(args[1])));
+      case 'Math.toRadians':
+        return DBL((this.numeric(args[0]) * Math.PI) / 180);
+      case 'Math.toDegrees':
+        return DBL((this.numeric(args[0]) * 180) / Math.PI);
+      case 'Math.log1p':
+        return DBL(Math.log1p(this.numeric(args[0])));
+      case 'Math.copySign':
+        return DBL(Math.sign(this.numeric(args[1])) * Math.abs(this.numeric(args[0])));
       case 'Math.floorDiv': {
         const divisor = this.numeric(args[1]);
         if (divisor === 0) throw new JavaException('ArithmeticException', '/ by zero');
@@ -1772,23 +1856,68 @@ class Machine {
       }
       case 'Integer.toString':
         return STR(String(this.numeric(args[0])));
-      case 'String.valueOf':
-        return STR(this.str(args[0] ?? NULLV));
+      case 'String.valueOf': {
+        const arg = args[0] ?? NULLV;
+        // String.valueOf(char[]) builds text; anything else is toString()
+        return STR(this.charArrayText(arg) ?? this.str(arg));
+      }
+      case 'Optional.of':
+        return { t: 'opt', empty: false, value: args[0] ?? NULLV };
+      case 'Optional.ofNullable':
+        return (args[0] ?? NULLV).t === 'null'
+          ? { t: 'opt', empty: true, value: NULLV }
+          : { t: 'opt', empty: false, value: args[0] };
+      case 'Optional.empty':
+        return { t: 'opt', empty: true, value: NULLV };
+      case 'Objects.isNull':
+        return BOOL((args[0] ?? NULLV).t === 'null');
+      case 'Objects.nonNull':
+        return BOOL((args[0] ?? NULLV).t !== 'null');
+      case 'Objects.toString':
+        return STR((args[0] ?? NULLV).t === 'null' ? (args[1] ? this.str(args[1]) : 'null') : this.str(args[0]));
+      case 'Objects.hashCode':
+        return INT(this.str(args[0] ?? NULLV).length);
       case 'Character.isDigit':
-        return BOOL(/[0-9]/.test(this.str(args[0])));
+        return BOOL(/^[0-9]$/.test(this.str(args[0])));
       case 'Character.isLetter':
-        return BOOL(/[A-Za-z]/.test(this.str(args[0])));
+        return BOOL(/^[A-Za-z]$/.test(this.str(args[0])));
+      case 'Character.isLetterOrDigit':
+        return BOOL(/^[A-Za-z0-9]$/.test(this.str(args[0])));
+      case 'Character.isAlphabetic':
+        return BOOL(/^[A-Za-z]$/.test(this.str(args[0])));
+      case 'Character.isWhitespace':
+      case 'Character.isSpaceChar':
+        return BOOL(/^\s$/.test(this.str(args[0])));
+      case 'Character.isUpperCase':
+        return BOOL(/^[A-Z]$/.test(this.str(args[0])));
+      case 'Character.isLowerCase':
+        return BOOL(/^[a-z]$/.test(this.str(args[0])));
+      case 'Character.toUpperCase':
+        return CHR(this.str(args[0]).toUpperCase());
+      case 'Character.toLowerCase':
+        return CHR(this.str(args[0]).toLowerCase());
+      case 'Character.getNumericValue':
+        return INT(Number.parseInt(this.str(args[0]), 36));
+      case 'Character.compare':
+        return INT(this.numeric(args[0]) - this.numeric(args[1]));
       case 'Arrays.toString': {
         const arr = this.arrayOf(args[0]);
         return STR(`[${arr.cells.map((c) => this.str(c)).join(', ')}]`);
       }
-      case 'Arrays.deepToString': {
-        const arr = this.arrayOf(args[0]);
-        return STR(`[${arr.cells.map((c) => (c.t === 'ref' ? this.str(c) : this.str(c))).join(', ')}]`);
-      }
+      case 'Arrays.deepToString':
+        return STR(this.deepText(args[0]));
       case 'Arrays.sort': {
         const arr = this.arrayOf(args[0]);
-        arr.cells.sort((x, y) => this.compareValues(x, y, args[1]));
+        // Arrays.sort(a, from, to) sorts a range, Arrays.sort(a, cmp) a whole array
+        if (args.length >= 3 && (args[1]?.t === 'int' || args[1]?.t === 'long')) {
+          const from = Math.max(0, this.num(args[1]));
+          const to = Math.min(arr.cells.length, this.num(args[2]));
+          const sorted = arr.cells.slice(from, to).sort((x, y) => this.compareValues(x, y));
+          arr.cells = [...arr.cells.slice(0, from), ...sorted, ...arr.cells.slice(to)];
+          return NULLV;
+        }
+        const cmp = args[1]?.t === 'cmpr' || args[1]?.t === 'fn' ? args[1] : undefined;
+        arr.cells.sort((x, y) => this.compareValues(x, y, cmp));
         return NULLV;
       }
       case 'Collections.reverse': {
@@ -1942,21 +2071,29 @@ class Machine {
       }
       case 'Arrays.fill': {
         const arr = this.arrayOf(args[0]);
+        // Arrays.fill(a, from, to, value) fills a range only
+        if (args.length >= 4) {
+          const from = Math.max(0, this.num(args[1]));
+          const to = Math.min(arr.cells.length, this.num(args[2]));
+          for (let i = from; i < to; i++) arr.cells[i] = args[3] ?? NULLV;
+          return NULLV;
+        }
         arr.cells = arr.cells.map(() => args[1]);
         return NULLV;
       }
       case 'Arrays.copyOf': {
         const arr = this.arrayOf(args[0]);
         const size = this.num(args[1]);
-        const cells = Array.from({ length: size }, (_, i) => arr.cells[i] ?? INT(0));
+        const cells = Array.from({ length: size }, (_, i) => arr.cells[i] ?? this.defaultFor({ name: arr.elemType, dims: 0 }));
         return { t: 'ref', id: this.alloc({ kind: 'array', elemType: arr.elemType, cells, dims: [size] }).id };
       }
-      case 'Arrays.equals':
-      case 'Arrays.deepEquals': {
+      case 'Arrays.equals': {
         const a = this.arrayOf(args[0]).cells;
         const b = this.arrayOf(args[1]).cells;
         return BOOL(a.length === b.length && a.every((cell, i) => this.equals(cell, b[i])));
       }
+      case 'Arrays.deepEquals':
+        return BOOL(this.deepEquals(args[0], args[1]));
     }
 
     const cls = this.classMap.get(className);
@@ -1988,16 +2125,66 @@ class Machine {
     throw new RuntimeError(`Unsupported call ${className}.${name}()`, line);
   }
 
+  /** Java and JavaScript regex syntax agree on everything the tracer needs */
+  private regex(pattern: string): RegExp {
+    try {
+      return new RegExp(pattern, 'g');
+    } catch {
+      throw new RuntimeError(`bad regular expression ${pattern}`, this.top()?.line ?? 0);
+    }
+  }
+
+  private replaceWith(text: string, pattern: string, replacement: string, all: boolean): string {
+    const single = new RegExp(pattern);
+    return all ? text.replace(this.regex(pattern), replacement) : text.replace(single, replacement);
+  }
+
+  /** the text of a char[] argument, or null when the value is not a char array */
+  private charArrayText(v: Val): string | null {
+    if (v.t !== 'ref') return null;
+    const obj = this.heap.get(v.id);
+    if (obj?.kind !== 'array' || obj.elemType !== 'char') return null;
+    return obj.cells.map((cell) => this.str(cell)).join('');
+  }
+
+  /** Arrays.deepToString: nested arrays render, everything else uses toString */
+  private deepText(v: Val): string {
+    if (v.t === 'ref') {
+      const obj = this.heap.get(v.id);
+      if (obj?.kind === 'array') return `[${obj.cells.map((cell) => this.deepText(cell)).join(', ')}]`;
+    }
+    if (v.t === 'null') return 'null';
+    return this.str(v);
+  }
+
+  private deepEquals(a: Val, b: Val): boolean {
+    const left = a.t === 'ref' ? this.heap.get(a.id) : undefined;
+    const right = b.t === 'ref' ? this.heap.get(b.id) : undefined;
+    if (left?.kind === 'array' && right?.kind === 'array') {
+      return left.cells.length === right.cells.length && left.cells.every((cell, i) => this.deepEquals(cell, right.cells[i]));
+    }
+    return this.equals(a, b);
+  }
+
   private stringCall(text: string, name: string, args: Val[]): Val {
     switch (name) {
       case 'length':
         return INT(text.length);
-      case 'charAt':
-        return CHR(text[this.num(args[0])] ?? '');
-      case 'substring':
-        return STR(args.length > 1 ? text.slice(this.num(args[0]), this.num(args[1])) : text.slice(this.num(args[0])));
+      case 'charAt': {
+        const at = this.num(args[0]);
+        if (at < 0 || at >= text.length) throw new JavaException('StringIndexOutOfBoundsException', `index ${at}, length ${text.length}`);
+        return CHR(text[at]);
+      }
+      case 'substring': {
+        const from = this.num(args[0]);
+        const to = args.length > 1 ? this.num(args[1]) : text.length;
+        if (from < 0 || to > text.length || from > to) {
+          throw new JavaException('StringIndexOutOfBoundsException', `begin ${from}, end ${to}, length ${text.length}`);
+        }
+        return STR(text.slice(from, to));
+      }
       case 'indexOf':
-        return INT(text.indexOf(this.str(args[0])));
+        return INT(text.indexOf(this.str(args[0]), args.length > 1 ? this.num(args[1]) : 0));
       case 'equals':
         return BOOL(text === this.str(args[0]));
       case 'equalsIgnoreCase':
@@ -2015,7 +2202,19 @@ class Machine {
       case 'toString':
         return STR(text);
       case 'split': {
-        const parts = text.split(this.str(args[0]));
+        const limit = args.length > 1 ? this.num(args[1]) : 0;
+        // Java's limit stops splitting and leaves the rest in the last part
+        const re = this.regex(this.str(args[0]));
+        const parts: string[] = [];
+        let last = 0;
+        for (const match of text.matchAll(re)) {
+          if (!match[0] || (limit > 0 && parts.length === limit - 1)) break;
+          const at = match.index ?? 0;
+          parts.push(text.slice(last, at));
+          last = at + match[0].length;
+        }
+        parts.push(text.slice(last));
+        if (limit === 0) while (parts.length && parts[parts.length - 1] === '') parts.pop();
         return { t: 'ref', id: this.alloc({ kind: 'array', elemType: 'String', cells: parts.map((part) => STR(part)), dims: [parts.length] }).id };
       }
       case 'startsWith':
@@ -2025,11 +2224,41 @@ class Machine {
       case 'replace':
         return STR(text.split(this.str(args[0])).join(this.str(args[1])));
       case 'replaceAll':
-        return STR(text.split(this.str(args[0])).join(this.str(args[1])));
+        return STR(this.replaceWith(text, this.str(args[0]), this.str(args[1]), true));
+      case 'replaceFirst':
+        return STR(this.replaceWith(text, this.str(args[0]), this.str(args[1]), false));
       case 'lastIndexOf':
-        return INT(text.lastIndexOf(this.str(args[0])));
-      case 'compareTo':
-        return INT(text < this.str(args[0]) ? -1 : text > this.str(args[0]) ? 1 : 0);
+        return INT(args.length > 1 ? text.lastIndexOf(this.str(args[0]), this.num(args[1])) : text.lastIndexOf(this.str(args[0])));
+      case 'compareTo': {
+        // Java returns the difference of the first differing chars, not just the sign
+        const other = this.str(args[0]);
+        const shared = Math.min(text.length, other.length);
+        for (let i = 0; i < shared; i++) {
+          if (text[i] !== other[i]) return INT(text.charCodeAt(i) - other.charCodeAt(i));
+        }
+        return INT(text.length - other.length);
+      }
+      case 'strip':
+        return STR(text.trim());
+      case 'stripLeading':
+        return STR(text.replace(/^\s+/, ''));
+      case 'stripTrailing':
+        return STR(text.replace(/\s+$/, ''));
+      case 'chars':
+      case 'codePoints':
+        return { t: 'stream', items: [...text].map((ch) => INT(ch.codePointAt(0) ?? 0)) };
+      case 'codePointAt': {
+        const at = this.num(args[0]);
+        if (at < 0 || at >= text.length) throw new JavaException('StringIndexOutOfBoundsException', `index ${at}, length ${text.length}`);
+        return INT(text.codePointAt(at) ?? 0);
+      }
+      case 'hashCode': {
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+        return INT(hash);
+      }
+      case 'intern':
+        return STR(text);
       case 'concat':
         return STR(text + this.str(args[0]));
       case 'repeat':
@@ -2068,6 +2297,11 @@ class Machine {
     const spec = this.fns.get(fn.id);
     if (!spec) throw new RuntimeError('lost a function reference', line);
     if (spec.kind === 'ref') return this.callOn(spec.target, spec.name, args);
+    if (spec.kind === 'newArray') {
+      const size = Math.max(0, args[0] ? this.num(args[0]) : 0);
+      const cells = Array.from({ length: size }, () => this.defaultFor({ name: spec.elemType, dims: 0 }));
+      return { t: 'ref', id: this.alloc({ kind: 'array', elemType: spec.elemType, cells, dims: [size] }).id };
+    }
     if (spec.kind === 'entry') {
       const target = args[0];
       if (target?.t === 'ref') {
@@ -2108,8 +2342,57 @@ class Machine {
     }
   }
 
+  /** a `catch (T e)` handles this throw when T is the thrown type or one of its ancestors */
+  private catchesType(thrown: string, caught: string): boolean {
+    if (thrown === caught) return true;
+    let cls = this.classMap.get(thrown);
+    let guard = 0;
+    while (cls?.parent && guard++ < 20) {
+      if (cls.parent === caught) return true;
+      cls = this.classMap.get(cls.parent);
+    }
+    return false;
+  }
+
+  /** true when the class is (or extends) one of the built-in exceptions */
+  private extendsException(name: string): boolean {
+    let cls = this.classMap.get(name);
+    let guard = 0;
+    while (cls?.parent && guard++ < 20) {
+      if (BUILTIN_EXCEPTIONS.has(cls.parent)) return true;
+      cls = this.classMap.get(cls.parent);
+    }
+    return false;
+  }
+
+  /** `throw value` — an instance of a class extending a built-in exception carries its message */
+  private asException(value: Val): { t: 'exc'; type: string; message: string } {
+    if (value.t === 'ref') {
+      const obj = this.heap.get(value.id);
+      if (obj?.kind === 'object' && this.extendsException(obj.className)) {
+        const message = obj.fields.find((f) => f.name === 'message')?.value;
+        return { t: 'exc', type: obj.className, message: message && message.t !== 'null' ? this.str(message) : '' };
+      }
+    }
+    return { t: 'exc', type: 'RuntimeException', message: this.str(value) };
+  }
+
+  /** true when a break/continue ends this loop; a labelled jump for an outer loop is rethrown */
+  private loopSignal(e: unknown, label?: string): 'break' | 'continue' | null {
+    if (e instanceof BreakSignal) {
+      if (!e.label || e.label === label) return 'break';
+      throw e;
+    }
+    if (e instanceof ContinueSignal) {
+      if (!e.label || e.label === label) return 'continue';
+      throw e;
+    }
+    return null;
+  }
+
   private compareValues(a: Val, b: Val, cmp?: Val): number {
-    if (cmp?.t === 'cmpr') {
+    // `Comparator.naturalOrder()` has no steps, so it falls through to the natural order
+    if (cmp?.t === 'cmpr' && cmp.steps.length) {
       for (const step of cmp.steps) {
         const result = step.fn
           ? this.compareValues(this.apply(step.fn, [a]), this.apply(step.fn, [b]))
@@ -2118,7 +2401,7 @@ class Machine {
       }
       return 0;
     }
-    if (cmp) return this.num(this.apply(cmp, [a, b]));
+    if (cmp && cmp.t !== 'cmpr') return this.num(this.apply(cmp, [a, b]));
     if (a.t === 'str' || b.t === 'str') return this.str(a) < this.str(b) ? -1 : this.str(a) > this.str(b) ? 1 : 0;
     return this.numeric(a) - this.numeric(b);
   }
@@ -2228,9 +2511,11 @@ class Machine {
     const line = this.top()?.line ?? 0;
     const self: Val = { t: 'ref', id: obj.id };
     switch (name) {
-      case 'append':
-        obj.text += this.str(args[0] ?? NULLV);
+      case 'append': {
+        const arg = args[0] ?? NULLV;
+        obj.text += this.charArrayText(arg) ?? this.str(arg);
         return self;
+      }
       case 'insert': {
         const at = Math.max(0, this.num(args[0]));
         obj.text = obj.text.slice(0, at) + this.str(args[1] ?? NULLV) + obj.text.slice(at);
@@ -2271,7 +2556,13 @@ class Machine {
       case 'charAt':
         return CHR(obj.text[this.num(args[0])] ?? '');
       case 'indexOf':
-        return INT(obj.text.indexOf(this.str(args[0])));
+        return INT(obj.text.indexOf(this.str(args[0]), args.length > 1 ? this.num(args[1]) : 0));
+      case 'lastIndexOf':
+        return INT(args.length > 1 ? obj.text.lastIndexOf(this.str(args[0]), this.num(args[1])) : obj.text.lastIndexOf(this.str(args[0])));
+      case 'substring':
+        return STR(args.length > 1 ? obj.text.slice(this.num(args[0]), this.num(args[1])) : obj.text.slice(this.num(args[0])));
+      case 'subSequence':
+        return STR(obj.text.slice(this.num(args[0]), this.num(args[1])));
       case 'isEmpty':
         return BOOL(obj.text.length === 0);
       default:
@@ -2388,6 +2679,12 @@ class Machine {
         return { t: 'opt', empty: false, value: acc };
       }
       case 'toArray': {
+        // toArray(String[]::new) states the element type
+        const hint = args[0];
+        const spec = hint?.t === 'fn' ? this.fns.get(hint.id) : undefined;
+        if (spec?.kind === 'newArray') {
+          return { t: 'ref', id: this.alloc({ kind: 'array', elemType: spec.elemType, cells: [...items], dims: [items.length] }).id };
+        }
         const first = items[0];
         const elemType = !first ? 'Object' : first.t === 'str' ? 'String' : first.t === 'ref' ? 'Object' : first.t;
         return { t: 'ref', id: this.alloc({ kind: 'array', elemType, cells: [...items], dims: [items.length] }).id };
@@ -2424,9 +2721,21 @@ class Machine {
         return opt.empty ? (args[0] ?? NULLV) : opt.value;
       case 'orElseGet':
         return opt.empty ? this.apply(args[0], []) : opt.value;
+      case 'or':
+        return opt.empty ? this.apply(args[0], []) : opt;
       case 'ifPresent':
         if (!opt.empty) this.apply(args[0], [opt.value]);
         return NULLV;
+      case 'ifPresentOrElse':
+        this.apply(opt.empty ? args[1] : args[0], opt.empty ? [] : [opt.value]);
+        return NULLV;
+      case 'map':
+        return opt.empty ? opt : { t: 'opt', empty: false, value: this.apply(args[0], [opt.value]) };
+      case 'flatMap':
+        return opt.empty ? opt : this.apply(args[0], [opt.value]);
+      case 'filter':
+        if (opt.empty) return opt;
+        return this.truthy(this.apply(args[0], [opt.value])) ? opt : { t: 'opt', empty: true, value: NULLV };
       default:
         throw new RuntimeError(`Optional.${name}() is not supported`, line);
     }
@@ -2471,8 +2780,37 @@ class Machine {
         return BOOL(obj.entries.length === 0);
       case 'remove': {
         const at = find(args[0]);
-        if (at < 0) return NULLV;
+        if (at < 0) return args.length > 1 ? BOOL(false) : NULLV;
+        // remove(key, value) only removes when the value matches
+        if (args.length > 1) {
+          if (!this.equals(obj.entries[at].value, args[1])) return BOOL(false);
+          obj.entries.splice(at, 1);
+          return BOOL(true);
+        }
         return obj.entries.splice(at, 1)[0].value;
+      }
+      case 'firstKey':
+      case 'lastKey': {
+        if (!obj.entries.length) throw new JavaException('NoSuchElementException', 'the map is empty');
+        return name === 'firstKey' ? obj.entries[0].key : obj.entries[obj.entries.length - 1].key;
+      }
+      case 'floorKey':
+      case 'ceilingKey':
+      case 'lowerKey':
+      case 'higherKey': {
+        const sorted = [...obj.entries].sort((a, b) => this.compareValues(a.key, b.key, obj.cmp));
+        let best: Val | null = null;
+        for (const entry of sorted) {
+          const cmp = this.compareValues(entry.key, args[0], obj.cmp);
+          const fits = name === 'higherKey' ? cmp > 0 : name === 'ceilingKey' ? cmp >= 0 : name === 'lowerKey' ? cmp < 0 : cmp <= 0;
+          if (!fits) continue;
+          if (!best) best = entry.key;
+          else {
+            const against = this.compareValues(entry.key, best, obj.cmp);
+            if (name === 'lowerKey' || name === 'floorKey' ? against > 0 : against < 0) best = entry.key;
+          }
+        }
+        return best ?? NULLV;
       }
       case 'clear':
         obj.entries.length = 0;
@@ -2635,10 +2973,70 @@ class Machine {
       case 'size':
         return INT(obj.items.length);
       case 'remove': {
+        // remove(int) drops a position, remove(Object) drops a value — but a Set
+        // only ever removes the value it is given
+        const isSet = obj.elemType === 'Set' || obj.elemType === 'TreeSet';
+        if (isSet || (args[0].t !== 'int' && args[0].t !== 'long')) {
+          const at = obj.items.findIndex((item) => this.equals(item, args[0]));
+          if (at < 0) return BOOL(false);
+          obj.items.splice(at, 1);
+          return BOOL(true);
+        }
         const index = this.num(args[0]);
         if (index < 0 || index >= obj.items.length) throw new JavaException('IndexOutOfBoundsException', `Index ${index} out of bounds for length ${obj.items.length}`);
         const removed = obj.items.splice(index, 1)[0];
         return removed;
+      }
+      case 'subList': {
+        const from = Math.max(0, this.num(args[0]));
+        const to = Math.min(obj.items.length, this.num(args[1]));
+        return this.newList(obj.items.slice(from, to), obj.elemType);
+      }
+      case 'toArray': {
+        const first = obj.items[0];
+        const elemType = first && first.t !== 'ref' ? first.t : 'Object';
+        return { t: 'ref', id: this.alloc({ kind: 'array', elemType, cells: [...obj.items], dims: [obj.items.length] }).id };
+      }
+      case 'lastIndexOf': {
+        for (let i = obj.items.length - 1; i >= 0; i--) if (this.equals(obj.items[i], args[0])) return INT(i);
+        return INT(-1);
+      }
+      case 'containsAll':
+        return BOOL(this.elementsOf(args[0]).every((wanted) => obj.items.some((item) => this.equals(item, wanted))));
+      case 'removeAll': {
+        const drop = this.elementsOf(args[0]);
+        const before = obj.items.length;
+        obj.items = obj.items.filter((item) => !drop.some((wanted) => this.equals(wanted, item)));
+        return BOOL(obj.items.length < before);
+      }
+      case 'retainAll': {
+        const keep = this.elementsOf(args[0]);
+        const before = obj.items.length;
+        obj.items = obj.items.filter((item) => keep.some((wanted) => this.equals(wanted, item)));
+        return BOOL(obj.items.length < before);
+      }
+      case 'first':
+      case 'last': {
+        if (!obj.items.length) throw new JavaException('NoSuchElementException', 'the collection is empty');
+        return name === 'first' ? obj.items[0] : obj.items[obj.items.length - 1];
+      }
+      case 'higher':
+      case 'ceiling':
+      case 'lower':
+      case 'floor': {
+        // SortedSet navigation: the next/previous element relative to a value
+        let best: Val | null = null;
+        for (const item of obj.items) {
+          const cmp = this.compareValues(item, args[0]);
+          const fits = name === 'higher' ? cmp > 0 : name === 'ceiling' ? cmp >= 0 : name === 'lower' ? cmp < 0 : cmp <= 0;
+          if (!fits) continue;
+          if (!best) best = item;
+          else {
+            const against = this.compareValues(item, best);
+            if (name === 'lower' || name === 'floor' ? against > 0 : against < 0) best = item;
+          }
+        }
+        return best ?? NULLV;
       }
       case 'isEmpty':
         return BOOL(obj.items.length === 0);
@@ -2669,6 +3067,12 @@ class Machine {
         return INT(at);
       }
       case 'addAll': {
+        if (args.length === 2) {
+          const at = Math.max(0, this.num(args[0]));
+          const extra = this.elementsOf(args[1]);
+          obj.items.splice(at, 0, ...extra);
+          return BOOL(extra.length > 0);
+        }
         const extra = this.elementsOf(args[0]);
         for (const item of extra) obj.items.push(item);
         return BOOL(extra.length > 0);

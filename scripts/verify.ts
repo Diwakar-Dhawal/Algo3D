@@ -675,7 +675,7 @@ javaCheck('int arithmetic wraps at 32 bits', MAIN('        int big = Integer.MAX
 javaCheck(
   'string helpers: split, startsWith, replace, repeat, toCharArray',
   MAIN('        String s = "a,b,c";\n        System.out.println(s.split(",").length + " " + s.startsWith("a") + " " + s.replace(",", "-"));\n        System.out.println("ab".repeat(3) + " " + "hi".compareTo("ho"));\n        char[] cs = "xyz".toCharArray();\n        System.out.println(cs[1]);'),
-  '3 true a-b-c\nababab -1\ny\n'
+  '3 true a-b-c\nababab -6\ny\n'
 );
 javaCheck(
   'Stack, Queue and PriorityQueue',
@@ -802,6 +802,84 @@ javaCheck(
   'String.matches, toBinaryString, bitCount and arraycopy',
   JAVA('        int[] a = {1, 2, 3};\n        int[] b = new int[3];\n        System.arraycopy(a, 0, b, 0, 3);\n        System.out.println("abc123".matches("[a-z]+[0-9]+") + " " + Integer.toBinaryString(10) + " " + Integer.bitCount(7) + " " + Arrays.toString(b));'),
   'true 1010 3 [1, 2, 3]\n'
+);
+
+/* ---------- JDK gaps closed after the capability probe ---------- */
+
+javaCheck(
+  'indexOf/lastIndexOf honour a from-index',
+  JAVA('        String s = "banana";\n        System.out.println(s.indexOf("a", 2) + " " + s.lastIndexOf("an") + " " + s.indexOf(\'n\'));'),
+  '3 3 2\n'
+);
+javaCheck(
+  'replaceAll uses a regex, strip trims',
+  JAVA('        System.out.println("a1b2".replaceAll("[0-9]", "#") + " " + "a1b2".replaceFirst("[0-9]", "#"));\n        System.out.println("[" + "  x  ".strip() + "]" + "[" + "  x  ".stripLeading() + "]");'),
+  'a#b# a#b2\n[x][x  ]\n'
+);
+javaCheck(
+  'split honours a limit by keeping the tail',
+  JAVA('        String[] parts = "a,b,,c".split(",", 3);\n        System.out.println(parts.length + " " + parts[2]);'),
+  '3 ,c\n'
+);
+javaCheck(
+  'chars(), codePointAt and append(char[])',
+  JAVA('        System.out.println("abc".chars().sum() + " " + "abc".codePointAt(0));\n        char[] cs = {\'!\', \'?\'};\n        System.out.println(new StringBuilder("hi").append(cs) + " " + String.valueOf(cs));'),
+  '294 97\nhi!? !?\n'
+);
+javaCheck(
+  'Arrays.sort/fill ranges and deepToString',
+  JAVA('        int[] a = {5, 4, 3, 2, 1};\n        Arrays.sort(a, 1, 4);\n        int[][] g = {{1, 2}, {3}};\n        int[] b = new int[4];\n        Arrays.fill(b, 1, 3, 7);\n        System.out.println(Arrays.toString(a) + " " + Arrays.toString(b));\n        System.out.println(Arrays.deepToString(g));'),
+  '[5, 2, 3, 4, 1] [0, 7, 7, 0]\n[[1, 2], [3]]\n'
+);
+javaCheck(
+  'List.remove(int) vs remove(Object), subList, toArray',
+  JAVA('        List<String> xs = new ArrayList<>(Arrays.asList("a", "b", "c"));\n        xs.remove("b");\n        List<Integer> ns = new ArrayList<>(Arrays.asList(7, 8, 9));\n        ns.remove(0);\n        System.out.println(xs + " " + ns + " " + xs.subList(0, 1) + " " + xs.toArray().length);'),
+  '[a, c] [8, 9] [a] 2\n'
+);
+javaCheck(
+  'TreeMap navigation and remove(key, value)',
+  JAVA('        TreeMap<Integer, String> t = new TreeMap<>();\n        t.put(1, "a"); t.put(3, "c");\n        System.out.println(t.firstKey() + " " + t.lastKey() + " " + t.ceilingKey(2) + " " + t.floorKey(2));\n        System.out.println(t.remove(1, "z") + " " + t.size());'),
+  '1 3 3 1\nfalse 2\n'
+);
+javaCheck(
+  'TreeSet first/last/higher',
+  JAVA('        TreeSet<Integer> s = new TreeSet<>(Arrays.asList(2, 1, 3));\n        System.out.println(s.first() + " " + s.last() + " " + s.higher(2) + " " + s.lower(2));'),
+  '1 3 3 1\n'
+);
+javaCheck(
+  'Optional.ofNullable, map, filter and or',
+  JAVA('        Optional<String> empty = Optional.ofNullable(null);\n        Optional<Integer> some = Optional.of(3);\n        System.out.println(empty.orElse("none") + " " + some.map(x -> x * 2).get() + " " + some.filter(x -> x > 5).isPresent() + " " + empty.or(() -> Optional.of(9)).get());'),
+  'none 6 false 9\n'
+);
+javaCheck(
+  'naturalOrder sorts, signum/isWhitespace/isNull answer',
+  JAVA('        List<Integer> xs = new ArrayList<>(Arrays.asList(3, 1, 2));\n        xs.sort(Comparator.naturalOrder());\n        System.out.println(xs + " " + Math.signum(-2.0) + " " + Character.isWhitespace(\' \') + " " + Objects.isNull(null));'),
+  '[1, 2, 3] -1.0 true true\n'
+);
+javaCheck(
+  'double methods print as doubles',
+  'class Shape { double area() { int s = 3; return s * s; } }\nclass Main { public static void main(String[] args) { System.out.println(new Shape().area()); } }',
+  '9.0\n'
+);
+javaCheck(
+  'bitwise, shift and a labelled continue',
+  JAVA('        int a = 5 & 3;\n        int b = 1 << 4;\n        int c = ~0;\n        int seen = 0;\n        outer: for (int r = 0; r < 3; r++) {\n            for (int col = 0; col < 3; col++) {\n                if (col == 1) continue outer;\n                seen++;\n            }\n        }\n        System.out.println(a + " " + b + " " + c + " " + seen);'),
+  '1 16 -1 3\n'
+);
+javaCheck(
+  'a class extending RuntimeException is caught by its parent type',
+  'class Boom extends RuntimeException { Boom(String m) { super(m); } }\nclass Main {\n    static void boom() { throw new Boom("kaboom"); }\n    public static void main(String[] args) {\n        try { boom(); } catch (RuntimeException e) { System.out.println(e.getMessage()); }\n    }\n}',
+  'kaboom\n'
+);
+javaCheck(
+  'generic methods and String[]::new',
+  'import java.util.*;\nimport java.util.stream.*;\nclass Main {\n    static <T> T first(List<T> xs) { return xs.get(0); }\n    public static void main(String[] args) {\n        System.out.println(first(Arrays.asList("z")) + " " + Stream.of("p", "q").toArray(String[]::new).length);\n    }\n}',
+  'z 2\n'
+);
+javaCheck(
+  'instanceof accepts an interface name',
+  JAVA('        Object o = "hi";\n        System.out.println(o instanceof String);\n        System.out.println(o instanceof CharSequence);'),
+  'true\ntrue\n'
 );
 
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
