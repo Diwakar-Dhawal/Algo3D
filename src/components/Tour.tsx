@@ -80,6 +80,14 @@ const STEPS: Step[] = [
     body: 'Sketch an approach before you code it. Your drawing is saved in this browser, and a saved program can keep a copy of it.',
   },
   {
+    // rooms is a header button when signed in, behind the phone menu at this
+    // width, and the sign-in button when there is no account yet
+    mode: 'code',
+    target: '[data-tour="rooms"], [data-tour="menu"], [data-tour="account"]',
+    title: 'Rooms',
+    body: 'Sign in, then start a room to write together: share an editor or viewer link and the program and inputs stay in sync, while each person drives their own trace. On a phone it sits behind the ☰ menu.',
+  },
+  {
     // on a phone the help button lives in the menu, so either will do
     mode: 'code',
     target: '[data-tour="help"], [data-tour="menu"]',
@@ -157,14 +165,16 @@ export function Tour({ onClose, onMode, returnMode }: Props) {
     let live = true;
     let tries = 0;
 
-    // a selector list may include a control that is hidden at this width;
-    // the first one with real size is the one on screen
+    // a selector list is a priority order: the first target that is actually
+    // on screen at this width wins, so a phone's menu beats the desktop button
     const measure = () => {
-      for (const node of Array.from(document.querySelectorAll<HTMLElement>(step.target!))) {
-        const box = node.getBoundingClientRect();
-        if (box.width > 2 && box.height > 2) {
-          setRect(box);
-          return true;
+      for (const selector of step.target!.split(',')) {
+        for (const node of Array.from(document.querySelectorAll<HTMLElement>(selector.trim()))) {
+          const box = node.getBoundingClientRect();
+          if (box.width > 2 && box.height > 2) {
+            setRect(box);
+            return true;
+          }
         }
       }
       return false;

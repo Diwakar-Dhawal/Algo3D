@@ -22,7 +22,7 @@ function Account() {
 
   const name = user?.name ?? user?.email ?? '';
   return (
-    <div className="account">
+    <div className="account" data-tour="account">
       <Show when="signed-out">
         <SignInButton mode="modal">
           <span className="btn-google" title="Sign in with Google">
@@ -54,6 +54,7 @@ function RoomsButton({ onOpen }: { onOpen: () => void }) {
   return (
     <button
       className={`ghost-action rooms-btn ${active ? 'is-live' : ''}`}
+      data-tour="rooms"
       onClick={onOpen}
       title={active ? `In room “${active.room.name}”` : 'Collaborate in a room'}
     >
