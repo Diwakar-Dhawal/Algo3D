@@ -5,10 +5,16 @@
  * extra service to run. Each push merges with the newest server copy first and
  * retries on a version clash, which is what keeps two people drawing at the
  * same time from wiping each other's strokes.
+ *
+ * A poll that did not change the drawing must not recreate the elements array
+ * that reaches the Excalidraw surface. The server already sends
+ * `unchanged: true` with an empty `elements` on current polls, so the client
+ * keeps the last known good drawing in place until the server sends a newer,
+ * changed board.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { roomsApi } from '../rooms/api';
-import { mergeElements, type BoardElement } from './elements';
+import { mergeElements, boardSignature, type BoardElement } from './elements';
 
 export type BoardStatus = 'loading' | 'live' | 'saving' | 'offline';
 
@@ -47,11 +53,23 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
       if (!live) return;
       const board = result.data?.board;
       if (result.ok && board) {
-        // `unchanged` polls carry the version but not the drawing
+        // A current poll returns `unchanged: true` with no elements.
+        // A genuinely newer board arrives with a new version and a real
+        // elements array. Either way we keep the last known drawing stable
+        // until the content actually changes.
         if (!board.unchanged && board.version > versionRef.current) {
-          versionRef.current = board.version;
-          setVersion(board.version);
-          setElements(board.elements as BoardElement[]);
+          const next = board.elements as BoardElement[];
+          if (boardSignature(next) !== boardSignature(elements)) {
+            versionRef.current = board.version;
+            setVersion(board.version);
+            setElements(next);
+          } else {
+            // newer version but identical content: still advance the version
+            // so future pushes use the right base, but do not recreate the
+            // elements array the surface is looking at.
+            versionRef.current = board.version;
+            setVersion(board.version);
+          }
         }
         if (!readyRef.current) {
           readyRef.current = true;

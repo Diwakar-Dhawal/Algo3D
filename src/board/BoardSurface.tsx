@@ -1,6 +1,12 @@
 /**
  * The Excalidraw surface. Kept in its own module so Vite can lazy-load the
  * editor (and its stylesheet) only when someone opens a whiteboard.
+ *
+ * A shared board polls on a fixed cadence. The parent must not hand the surface
+ * a fresh array on every poll when nothing changed, and the surface must not
+ * re-apply the scene from `remote` on every heartbeat either. This module
+ * gates every remote rewrite on a content signature, and it tracks the last
+ * applied scene so unchanged polls cannot nudge it through a new-array reference.
  */
 import { useEffect, useRef } from 'react';
 import { CaptureUpdateAction, Excalidraw } from '@excalidraw/excalidraw';
@@ -25,7 +31,8 @@ export default function BoardSurface({ initial, remote, remoteVersion, readOnly,
   const lastRef = useRef(boardSignature(initial));
   const applyingRef = useRef(false);
 
-  // a remote scene replaces the local one without touching undo history
+  // a remote scene replaces the local one without touching undo history,
+  // but only when the remote content actually differs from what we last applied
   useEffect(() => {
     if (!remote || !remoteVersion) return;
     const api = apiRef.current;

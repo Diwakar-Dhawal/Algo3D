@@ -70,17 +70,6 @@ export function Whiteboard() {
     []
   );
 
-  /** take the room's drawing home, without losing what is already on your board */
-  const keepCopy = useCallback(() => {
-    const room = board.elements;
-    if (!room.length) return;
-    const merged = mergeElements(personalRef.current, room);
-    writePersonalBoard(userId, merged);
-    setPersonal(merged);
-    setCopyNote(`saved to your board · ${merged.length} shapes`);
-    if (copyTimer.current) window.clearTimeout(copyTimer.current);
-    copyTimer.current = window.setTimeout(() => setCopyNote(null), 3500);
-  }, [board, userId]);
 
   const change = useCallback(
     (elements: BoardElement[]) => {
@@ -97,6 +86,34 @@ export function Whiteboard() {
 
   const waiting = roomId !== null && !board.ready;
   const status: string = roomId ? (canDraw ? board.status : 'view only') : 'saved in this browser';
+
+  // For a shared board, `initial` is the scene at mount and `remote` only ever
+  // carries a genuinely newer drawing. Unchanged polls must not recreate the
+  // array the surface is looking at, so we keep the current elements reference
+  // unless the board actually changed.
+  const [roomInitial, setRoomInitial] = useState<BoardElement[]>([]);
+  useEffect(() => {
+    if (!roomId) return;
+    if (board.ready && board.elements.length && board.elements.length !== roomInitial.length) {
+      setRoomInitial(board.elements);
+    }
+  }, [roomId, board.ready, board.elements, roomInitial.length]);
+
+  const sharedInitial = roomId ? roomInitial : personal;
+  const sharedRemote = roomId && board.ready ? board.elements : undefined;
+  const sharedRemoteVersion = roomId ? board.version : undefined;
+
+  /** take the room's drawing home, without losing what is already on your board */
+  const keepCopy = useCallback(() => {
+    const room = sharedInitial;
+    if (!room.length) return;
+    const merged = mergeElements(personalRef.current, room);
+    writePersonalBoard(userId, merged);
+    setPersonal(merged);
+    setCopyNote(`saved to your board · ${merged.length} shapes`);
+    if (copyTimer.current) window.clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopyNote(null), 3500);
+  }, [sharedInitial, userId]);
 
   return (
     <section className="board" data-tour="board">
@@ -135,9 +152,9 @@ export function Whiteboard() {
 
             <BoardSurface
               key={roomId ? `room-${roomId}` : `own-${storageKey}`}
-              initial={roomId ? board.elements : personal}
-              remote={roomId ? board.elements : undefined}
-              remoteVersion={roomId ? board.version : undefined}
+              initial={sharedInitial}
+              remote={sharedRemote}
+              remoteVersion={sharedRemoteVersion}
               readOnly={!canDraw}
               onChange={change}
             />

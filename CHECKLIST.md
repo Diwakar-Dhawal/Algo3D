@@ -11,13 +11,14 @@ Areas: `ui` · `editor` · `runtime` · `lang` · `viz` · `library` · `saves` 
 
 ## In progress
 
-_Nothing in flight._
+- [ ] `board` **Shared whiteboard wipes every few seconds** — in progress: stabilize the elements reference so unchanged polls do not create new arrays / re-apply the scene; guard `BoardSurface` so only real updates rewrite the scene.
 
 ---
 
 ## P0 — defects
 
-_Nothing known._
+- [ ] `board` **Shared whiteboard wipes every few seconds** — in a room, the owner’s strokes disappear a couple of seconds after drawing. Root cause located: `useRoomBoard`/Whiteboard keep feeding `BoardSurface` a fresh `board.elements` array on nearly every poll heartbeat, and the surface re-applies the scene from `remote` each tick; `unchanged` polls still arrive with a new array reference, so unchanged polls rewrite the canvas. Private boards are unaffected — they never poll and never receive `remote`. Same polling/new-array hazard class exists in the code lab and room program editor; the lab currently guards unchanged polls with `shared.version <= appliedRoomVersion.current` and is not wiping, but it is the same hazard for any future shared canvas/editor.
+  - Fix targeted at `src/board/useRoomBoard.ts`, `src/board/Whiteboard.tsx`, `src/board/BoardSurface.tsx`. _P0 · board · S_
 
 ---
 
