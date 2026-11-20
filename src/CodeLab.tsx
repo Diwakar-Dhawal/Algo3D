@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { LANGS, langById, runIn, sampleCode } from './lang';
 import { formatInputs, suggestInputs } from './lang/inputs';
 import type { LangId } from './lang/types';
 import type { Trace } from './jvm/types';
-import { MemoryStage } from './memory/MemoryStage';
+import { PaneBoundary } from './components/PaneBoundary';
+import { ShortcutSheet } from './components/Shortcuts';
 import { valText } from './memory/layout';
 import { Editor } from './components/Editor';
 import { StepLog, type LogEntry } from './components/StepLog';
@@ -18,6 +19,9 @@ import type { BoardElement } from './board/elements';
 import { useRooms } from './rooms/RoomContext';
 import { roleLabel } from './rooms/roles';
 import { setRoomSeed } from './rooms/seed';
+
+/** three.js is heavy, so the scene arrives after the editor is already usable */
+const MemoryStage = lazy(() => import('./memory/MemoryStage').then((mod) => ({ default: mod.MemoryStage })));
 
 const BASE_MS = 620;
 
@@ -177,6 +181,8 @@ export function CodeLab({
   const [includeBoard, setIncludeBoard] = useState(false);
   const [boardNote, setBoardNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedOut, setCopiedOut] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const copyCode = async () => {
     const text = code;
@@ -184,6 +190,15 @@ export function CodeLab({
     if (!copiedOk) return;
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
+  };
+
+  const copyOutput = async () => {
+    const text = step?.stdout ?? '';
+    if (!text) return;
+    const copiedOk = await writeClipboard(text);
+    if (!copiedOk) return;
+    setCopiedOut(true);
+    window.setTimeout(() => setCopiedOut(false), 1600);
   };
 
   const openQuickSave = () => {
@@ -344,6 +359,13 @@ export function CodeLab({
     if (inRoom) rooms.push({ index: clamped });
   };
 
+  /** one play button for the bar and the space bar, both guarded by the room role */
+  const togglePlay = () => {
+    if (!mayDrive) return;
+    if (atEnd) setIndex(0);
+    setPlaying((p) => !p);
+  };
+
   const run = (source: string, language: LangId = lang, box = inputs) => {
     if (!mayRun) return;
     recordRun();
@@ -406,14 +428,32 @@ export function CodeLab({
         run(code);
         return;
       }
+      if (e.key === 'Escape' && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen((open) => !open);
+        return;
+      }
       if (!mayDrive) return;
       if (e.code === 'Space') {
         e.preventDefault();
-        setPlaying((p) => !p);
+        togglePlay();
       } else if (e.key === 'ArrowRight') {
         syncStep(safe + 1);
       } else if (e.key === 'ArrowLeft') {
         syncStep(safe - 1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        syncStep(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        syncStep(Math.max(0, total - 1));
+      } else if (e.key.toLowerCase() === 'b' && step) {
+        e.preventDefault();
+        toggleBreakpoint(step.line);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -555,6 +595,7 @@ export function CodeLab({
             <i>Source</i>
           </button>
         ) : (
+          <PaneBoundary label="Source" resetKey={lang}>
           <>
         <div className="panel-head">
           <span className="eyebrow">Source</span>
@@ -717,20 +758,31 @@ export function CodeLab({
           <span className="foot-hint right">{steps.length} steps</span>
         </div>
           </>
+          </PaneBoundary>
         )}
       </section>
 
       <section className="stage-wrap">
+        <PaneBoundary label="Visualizer" resetKey={trace}>
         <div className="stage">
           <div className="stage-scroll">
             {steps.length > 0 && step ? (
-              <MemoryStage
-                step={step}
-                stepIndex={safe}
-                onInspect={setSelected}
-                animMs={Math.round(Math.max(180, Math.min(520, (BASE_MS / speed) * 0.78)))}
-                resetKey={trace}
-              />
+              <Suspense
+                fallback={
+                  <div className="stage-loading">
+                    <span className="spinner" aria-hidden="true" />
+                    <span>Building the scene…</span>
+                  </div>
+                }
+              >
+                <MemoryStage
+                  step={step}
+                  stepIndex={safe}
+                  onInspect={setSelected}
+                  animMs={Math.round(Math.max(180, Math.min(520, (BASE_MS / speed) * 0.78)))}
+                  resetKey={trace}
+                />
+              </Suspense>
             ) : (
               <div className="stage-empty">
                 <p>{problem?.title ?? 'Nothing to visualize yet'}</p>
@@ -773,6 +825,7 @@ export function CodeLab({
 
           <div className="hint-float">click a cell to inspect · drag to move · scroll to zoom · space to play</div>
         </div>
+        </PaneBoundary>
 
         <div className="playbar">
           <button className="icon-btn" title="Restart" disabled={!mayDrive} onClick={() => syncStep(0)}>
@@ -785,11 +838,7 @@ export function CodeLab({
             className="play-btn"
             title={mayDrive ? 'Play / pause' : 'Only editors can run or move the trace'}
             disabled={!mayDrive}
-            onClick={() => {
-              if (!mayDrive) return;
-              if (atEnd) setIndex(0);
-              setPlaying((p) => !p);
-            }}
+            onClick={togglePlay}
           >
             {playing ? '❙❙' : '▶'}
           </button>
@@ -823,6 +872,14 @@ export function CodeLab({
               ))}
             </select>
           </label>
+          <button
+            className="icon-btn help-btn"
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            ?
+          </button>
         </div>
       </section>
 
@@ -833,6 +890,7 @@ export function CodeLab({
             <i>Inspector</i>
           </button>
         ) : (
+          <PaneBoundary label="Inspector">
           <>
         <div className="rail-bar">
           <span className="eyebrow">Inspector</span>
@@ -885,7 +943,16 @@ export function CodeLab({
         <div className="panel">
           <div className="panel-head">
             <span className="eyebrow">Output</span>
-            <span className="eyebrow soft">{step?.stdout ? `${step.stdout.split('\n').length - 1} lines` : 'console'}</span>
+            <div className="panel-head-right">
+              <span className="eyebrow soft">
+                {step?.stdout ? `${step.stdout.split('\n').length - 1} lines` : 'console'}
+              </span>
+              {step?.stdout ? (
+                <button className="link-btn" onClick={() => void copyOutput()} title="Copy the output so far">
+                  {copiedOut ? 'copied ✓' : 'copy'}
+                </button>
+              ) : null}
+            </div>
           </div>
           <pre className="console" ref={outputRef}>
             {step?.stdout ? step.stdout : 'System.out output appears here as it happens.'}
@@ -947,6 +1014,7 @@ export function CodeLab({
           </div>
         </div>
           </>
+          </PaneBoundary>
         )}
       </aside>
 
@@ -975,6 +1043,7 @@ export function CodeLab({
         }}
       />
       </main>
+      <ShortcutSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </>
   );
 }

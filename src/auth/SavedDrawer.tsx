@@ -45,6 +45,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [onlyStars, setOnlyStars] = useState(false);
+  const [query, setQuery] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState({ title: '', description: '' });
@@ -88,7 +89,16 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  const shown = useMemo(() => (onlyStars ? saves.filter((save) => save.favorite) : saves), [saves, onlyStars]);
+  const shown = useMemo(() => {
+    const starred = onlyStars ? saves.filter((save) => save.favorite) : saves;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return starred;
+    return starred.filter((save) =>
+      `${save.title} ${save.description ?? ''} ${LANG_LABEL[save.language] ?? save.language}`
+        .toLowerCase()
+        .includes(needle)
+    );
+  }, [saves, onlyStars, query]);
 
   if (!open) return null;
 
@@ -239,6 +249,16 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
               </button>
             </div>
 
+            {saves.length > 0 ? (
+              <input
+                className="drawer-input drawer-search"
+                type="search"
+                value={query}
+                placeholder="Search titles, descriptions, languages"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            ) : null}
+
             {note ? <p className="drawer-note">{note}</p> : null}
 
             {loading ? (
@@ -248,9 +268,11 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
               </p>
             ) : shown.length === 0 ? (
               <p className="drawer-empty">
-                {onlyStars
-                  ? 'No favourites yet — tap the ☆ on a program.'
-                  : 'Nothing saved yet. Edit some code and press “Save current”.'}
+                {query.trim()
+                  ? `No saved programs match “${query.trim()}”.`
+                  : onlyStars
+                    ? 'No favourites yet — tap the ☆ on a program.'
+                    : 'Nothing saved yet. Edit some code and press “Save current”.'}
               </p>
             ) : (
               <ul className="save-list">

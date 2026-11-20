@@ -3,6 +3,16 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Leave the splitting to the dynamic imports: a named manual chunk here
+        // gets a modulepreload tag in index.html, which puts three.js and
+        // excalidraw back on first paint. React gets its own long-lived chunk.
+        manualChunks: { react: ['react', 'react-dom'] },
+      },
+    },
+  },
   server: {
     port: 5173,
     host: true,

@@ -1,13 +1,16 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { CodeLab } from './CodeLab';
-import { Library } from './Library';
 import { Show, SignInButton, UserButton } from '@clerk/react';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { GoogleMark } from './auth/GoogleMark';
 import { RoomsProvider, useRooms } from './rooms/RoomContext';
 import { RoomsDrawer } from './rooms/RoomsDrawer';
 import { ThemeProvider, ThemeToggle } from './theme/ThemeContext';
-import { Whiteboard } from './board/Whiteboard';
+import { PaneBoundary } from './components/PaneBoundary';
+
+/** the library and the whiteboard (with excalidraw) only load when you open them */
+const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })));
+const Whiteboard = lazy(() => import('./board/Whiteboard').then((mod) => ({ default: mod.Whiteboard })));
 
 function Account() {
   const { user, stats, loading, available } = useAuth();
@@ -122,13 +125,22 @@ function Shell() {
         <Account />
       </header>
 
-      {mode === 'code' ? (
-        <CodeLab onOpenRooms={() => setRoomsOpen(true)} onOpenBoard={() => setMode('board')} />
-      ) : mode === 'library' ? (
-        <Library />
-      ) : (
-        <Whiteboard />
-      )}
+      <PaneBoundary label={mode === 'library' ? 'Library' : 'Whiteboard'} resetKey={mode}>
+        {mode === 'code' ? (
+          <CodeLab onOpenRooms={() => setRoomsOpen(true)} onOpenBoard={() => setMode('board')} />
+        ) : (
+          <Suspense
+            fallback={
+              <div className="mode-loading">
+                <span className="spinner" aria-hidden="true" />
+                <span>{mode === 'library' ? 'Loading the algorithm library…' : 'Loading the whiteboard…'}</span>
+              </div>
+            }
+          >
+            {mode === 'library' ? <Library /> : <Whiteboard />}
+          </Suspense>
+        )}
+      </PaneBoundary>
 
       <RoomsDrawer open={roomsOpen} onClose={() => setRoomsOpen(false)} initialCode={inviteCode} />
     </div>
