@@ -412,11 +412,62 @@ const javaAnnotated = runIn(
 );
 check('class annotations are ignored', javaAnnotated.stdout.trim() === 'ok', JSON.stringify(javaAnnotated.compileError ?? javaAnnotated.error ?? javaAnnotated.stdout));
 
-const javaScanner = runIn('java', ['import java.util.Scanner;', 'class Main {', '    public static void main(String[] args) {', '        Scanner sc = new Scanner(System.in);', '    }', '}'].join('\n'));
+const scannerProgram = [
+  'import java.util.Scanner;',
+  'class Main {',
+  '    public static void main(String[] args) {',
+  '        Scanner in = new Scanner(System.in);',
+  '        int n = in.nextInt();',
+  '        int total = 0;',
+  '        for (int i = 0; i < n; i++) total += in.nextInt();',
+  '        String rest = in.nextLine();',
+  '        double half = in.nextDouble();',
+  '        System.out.println("total=" + total + " rest=[" + rest + "] half=" + half);',
+  '    }',
+  '}',
+].join('\n');
+
+const javaScanner = runIn('java', scannerProgram, '', '3 4 8 1\n7.5');
 check(
-  'Scanner explains the Inputs panel',
-  (javaScanner.compileError?.message ?? javaScanner.error ?? '').includes('Inputs panel'),
-  JSON.stringify(javaScanner.compileError ?? javaScanner.error)
+  'Scanner reads ints, the rest of a line and a double',
+  javaScanner.stdout.trim() === 'total=13 rest=[] half=7.5',
+  JSON.stringify(javaScanner.compileError ?? javaScanner.error ?? javaScanner.stdout)
+);
+
+const javaScannerEmpty = runIn('java', scannerProgram, '', '');
+check(
+  'Scanner on empty input reports NoSuchElementException',
+  (javaScannerEmpty.error ?? '').includes('NoSuchElementException'),
+  JSON.stringify(javaScannerEmpty.error)
+);
+
+const javaScannerBad = runIn('java', scannerProgram, '', 'three 4 8');
+check(
+  'Scanner on a non-number reports InputMismatchException',
+  (javaScannerBad.error ?? '').includes('InputMismatchException'),
+  JSON.stringify(javaScannerBad.error)
+);
+
+const javaScannerLoop = runIn(
+  'java',
+  [
+    'import java.util.Scanner;',
+    'class Main {',
+    '    public static void main(String[] args) {',
+    '        Scanner in = new Scanner(System.in);',
+    '        int total = 0;',
+    '        while (in.hasNextInt()) total += in.nextInt();',
+    '        System.out.println(total);',
+    '    }',
+    '}',
+  ].join('\n'),
+  '',
+  '2 3 4 5'
+);
+check(
+  'hasNextInt ends the read loop',
+  javaScannerLoop.stdout.trim() === '14',
+  JSON.stringify(javaScannerLoop.compileError ?? javaScannerLoop.error ?? javaScannerLoop.stdout)
 );
 
 check('for-each records the loop variable as a step', javaPasted.steps.some((s) => s.note.includes('v = ')), `${javaPasted.steps.length} steps`);

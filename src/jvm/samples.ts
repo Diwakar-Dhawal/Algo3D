@@ -1,4 +1,11 @@
-export type Sample = { id: string; label: string; blurb: string; code: string };
+export type Sample = {
+  id: string;
+  label: string;
+  blurb: string;
+  code: string;
+  /** preloaded standard input, for samples that read through Scanner */
+  stdin?: string;
+};
 
 export const SAMPLES: Sample[] = [
   {
@@ -239,6 +246,31 @@ public class Main {
 
         // method reference
         passing.forEach(System.out::println);
+    }
+}`,
+  },
+  {
+    id: 'scanner',
+    label: 'Console input · Scanner',
+    blurb: 'Reads values from standard input',
+    stdin: '5\n4 8 1 9 3',
+    code: `import java.util.Scanner;
+
+class Main {
+    public static void main(String[] args) {
+        Scanner in = new Scanner(System.in);
+        int n = in.nextInt();                    // how many values follow
+        int[] values = new int[n];
+        for (int i = 0; i < n; i++) {
+            values[i] = in.nextInt();
+        }
+
+        int total = 0;
+        for (int i = 0; i < n; i++) {
+            total += values[i];
+        }
+        System.out.println("sum = " + total);
+        System.out.println("average = " + (total / n));
     }
 }`,
   },

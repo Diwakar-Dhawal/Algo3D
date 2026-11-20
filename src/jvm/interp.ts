@@ -1,3 +1,4 @@
+import { Stdin } from '../lang/stdin';
 import { parseJava, src, type ClassDef, type Expr, type MethodDef, type Stmt, type TypeRef } from './parser';
 import { ParseError } from './types';
 import type { Effect, HeapObj, StepKind, Trace, TraceFrame, TraceObj, TraceStep, TraceVal, Val } from './types';
@@ -37,7 +38,7 @@ const BUILTIN_EXCEPTIONS = new Set([
   'Exception', 'RuntimeException', 'IllegalArgumentException', 'IllegalStateException',
   'ArithmeticException', 'NullPointerException', 'IndexOutOfBoundsException',
   'ArrayIndexOutOfBoundsException', 'UnsupportedOperationException', 'NoSuchElementException',
-  'NumberFormatException', 'IllegalThreadStateException',
+  'NumberFormatException', 'IllegalThreadStateException', 'InputMismatchException',
 ]);
 
 class RuntimeError extends Error {
@@ -88,7 +89,7 @@ class Machine {
   private fns = new Map<number, FnSpec>();
   private fnSeq = 0;
 
-  constructor(private classes: ClassDef[]) {
+  constructor(private classes: ClassDef[], private input: Stdin = new Stdin()) {
     for (const cls of classes) {
       // a simple name only wins if no earlier class claimed it, so `Outer.Node`
       // never shadows a top-level `Node` that the program refers to plainly
@@ -313,6 +314,10 @@ class Machine {
         return v.message ? `${v.type}: ${v.message}` : v.type;
       case 'opt':
         return v.empty ? 'Optional.empty' : `Optional[${this.str(v.value)}]`;
+      case 'scanner':
+        return 'java.util.Scanner';
+      case 'in':
+        return 'System.in';
       default:
         return '?';
     }
@@ -326,6 +331,8 @@ class Machine {
     if (v.t === 'opt') return v.empty ? 'Optional.empty' : `Optional[${this.text(v.value)}]`;
     if (v.t === 'collector') return `Collectors.${v.kind}`;
     if (v.t === 'out') return 'System.out';
+    if (v.t === 'in') return 'System.in';
+    if (v.t === 'scanner') return 'Scanner';
     if (v.t === 'enum') return `${v.type}.${v.name}`;
     if (v.t === 'exc') return v.type;
     return this.str(v);
@@ -400,7 +407,16 @@ class Machine {
       return { name: 'Object', dims: 0 };
     }
     if (v.t === 'enum' || v.t === 'exc') return { name: v.type, dims: 0 };
-    if (v.t === 'fn' || v.t === 'stream' || v.t === 'opt' || v.t === 'collector' || v.t === 'out' || v.t === 'ns') {
+    if (
+      v.t === 'fn' ||
+      v.t === 'stream' ||
+      v.t === 'opt' ||
+      v.t === 'collector' ||
+      v.t === 'out' ||
+      v.t === 'in' ||
+      v.t === 'scanner' ||
+      v.t === 'ns'
+    ) {
       return { name: 'Object', dims: 0 };
     }
     return { name: v.t === 'bool' ? 'boolean' : v.t === 'char' ? 'char' : v.t === 'long' ? 'long' : v.t, dims: 0 };
@@ -1048,6 +1064,7 @@ class Machine {
   private readField(target: Val, name: string): Val {
     if (target.t === 'ns') {
       if (target.name === 'System' && name === 'out') return OUTV;
+      if (target.name === 'System' && name === 'in') return { t: 'in' };
       // `Map.Entry` used as a namespace for comparingByKey/comparingByValue
       if (target.name === 'Map' && name === 'Entry') return { t: 'ns', name: 'Map.Entry' };
       const slot = this.staticSlot(target.name, name);
@@ -1082,6 +1099,77 @@ class Machine {
     return null;
   }
 
+  /* ---------- Scanner ---------- */
+
+  /** every read lands in the trace, so the Inputs panel explains itself */
+  private scannerCall(name: string): Val {
+    const line = this.top()?.line ?? 0;
+    const take = (what: 'line' | 'token') => {
+      const value = what === 'line' ? this.input.nextLine() : this.input.next();
+      if (value === null) {
+        throw new JavaException('NoSuchElementException', what === 'line' ? 'No line found' : 'No more tokens');
+      }
+      return value;
+    };
+
+    switch (name) {
+      case 'nextLine': {
+        const text = take('line');
+        this.snap('stmt', `read line → "${text}"`);
+        return STR(text);
+      }
+      case 'next': {
+        const text = take('token');
+        this.snap('stmt', `read → "${text}"`);
+        return STR(text);
+      }
+      case 'nextInt':
+      case 'nextLong': {
+        const token = take('token');
+        if (!/^[+-]?\d+$/.test(token)) {
+          throw new JavaException('InputMismatchException', `For input string: "${token}"`);
+        }
+        this.snap('stmt', `read ${name === 'nextInt' ? 'int' : 'long'} → ${token}`);
+        return name === 'nextInt' ? INT(Number(token)) : LONG(Number(token));
+      }
+      case 'nextDouble': {
+        const token = take('token');
+        const value = Number(token);
+        if (!Number.isFinite(value)) throw new JavaException('InputMismatchException', `For input string: "${token}"`);
+        this.snap('stmt', `read double → ${token}`);
+        return DBL(value);
+      }
+      case 'nextBoolean': {
+        const token = take('token').toLowerCase();
+        if (token !== 'true' && token !== 'false') {
+          throw new JavaException('InputMismatchException', 'Expected true or false');
+        }
+        this.snap('stmt', `read boolean → ${token}`);
+        return BOOL(token === 'true');
+      }
+      case 'hasNext':
+        return BOOL(this.input.hasNext());
+      case 'hasNextLine':
+        return BOOL(this.input.hasNextLine());
+      case 'hasNextInt':
+      case 'hasNextLong': {
+        const token = this.input.peek();
+        return BOOL(token !== null && /^[+-]?\d+$/.test(token));
+      }
+      case 'hasNextDouble': {
+        const token = this.input.peek();
+        return BOOL(token !== null && Number.isFinite(Number(token)));
+      }
+      case 'close':
+        return NULLV;
+      default:
+        throw new RuntimeError(
+          `Scanner.${name}() is not supported — use next(), nextLine(), nextInt() or nextDouble()`,
+          line
+        );
+    }
+  }
+
   /* ---------- construction ---------- */
 
   private construct(e: Extract<Expr, { t: 'new' }>): Val {
@@ -1094,6 +1182,10 @@ class Machine {
       }
       return this.makeArray(e.name, sizes, 0);
     }
+
+    // Scanner reads the shared standard-input buffer; whether the argument is
+    // System.in or a literal string makes no difference to the trace
+    if (e.name === 'Scanner') return { t: 'scanner' };
 
     // a constructor argument is either a comparator or a collection to copy
     const ctorArg = () => {
@@ -1167,12 +1259,7 @@ class Machine {
 
     // `new Outer.Node()` — nested classes are registered under their simple name
     const cls = this.classMap.get(e.name) ?? this.classMap.get(e.name.split('.').pop() ?? '');
-    if (!cls) {
-      if (e.name === 'Scanner') {
-        throw new RuntimeError('Scanner is not supported — put your values in the Inputs panel instead.', this.top()?.line ?? 0);
-      }
-      throw new RuntimeError(`unknown class "${e.name}"`, this.top()?.line ?? 0);
-    }
+    if (!cls) throw new RuntimeError(`unknown class "${e.name}"`, this.top()?.line ?? 0);
     this.ensureStatics(cls);
     const args = e.args.map((a) => this.eval(a));
 
@@ -1378,6 +1465,10 @@ class Machine {
       }
       throw new RuntimeError(`System.out.${name} is not supported`, line);
     }
+
+    if (receiver.t === 'scanner') return this.scannerCall(name);
+
+    if (receiver.t === 'in') throw new RuntimeError('System.in is read through new Scanner(System.in)', line);
 
     if (receiver.t === 'fn') throw new RuntimeError(`${this.text(receiver)} is not a method — use .apply() or a stream`, line);
 
@@ -2597,10 +2688,10 @@ class Machine {
   }
 }
 
-export function runJava(source: string): Trace {
+export function runJava(source: string, stdin = ''): Trace {
   try {
     const classes = parseJava(source);
-    return new Machine(classes).run();
+    return new Machine(classes, new Stdin(stdin)).run();
   } catch (e) {
     if (e instanceof ParseError) {
       return {

@@ -982,6 +982,16 @@ button {
   margin-top: 9px;
 }
 
+/* standard input sits under the named values, in the same mono box */
+.stdin-field {
+  margin-top: 11px;
+}
+
+.inputs-stdin {
+  min-height: 58px;
+  max-height: 150px;
+}
+
 .inputs-actions .btn-gold {
   flex: 1;
   justify-content: center;

@@ -20,9 +20,14 @@ export const LANGS: Lang[] = [
     id: 'java',
     label: 'Java',
     file: 'Solution.java',
-    subset: 'arrays, Lists, Maps, Sets, lambdas, streams, your own classes',
+    subset: 'arrays, Lists, Maps, Sets, lambdas, streams, your own classes, Scanner input',
     defaultSample: 'bubble',
-    samples: JAVA_SAMPLES.map((sample) => ({ id: sample.id, label: sample.label, code: sample.code })),
+    samples: JAVA_SAMPLES.map((sample) => ({
+      id: sample.id,
+      label: sample.label,
+      code: sample.code,
+      stdin: sample.stdin,
+    })),
   },
   {
     id: 'python',
@@ -74,8 +79,14 @@ function remap(trace: Trace, map: number[]): Trace {
   };
 }
 
-/** Runs any supported language through the same tracing engine. */
-export function runIn(language: LangId, source: string, inputs = ''): Trace {
+/**
+ * Runs any supported language through the same tracing engine.
+ *
+ * `stdin` is the standard-input buffer. Only Java reads it today (through
+ * Scanner) — the other modes are translated to Java, so wiring their input
+ * onto the same `Stdin` reader is what it would take to enable them.
+ */
+export function runIn(language: LangId, source: string, inputs = '', stdin = ''): Trace {
   const applied = inputs.trim() ? applyInputs(language, source, inputs) : null;
   if (applied?.error) return { steps: [], stdout: '', heap: [], compileError: applied.error };
 
@@ -83,7 +94,7 @@ export function runIn(language: LangId, source: string, inputs = ''): Trace {
   const inputMap = applied ? applied.map : null;
 
   if (language === 'java') {
-    const trace = runJava(program);
+    const trace = runJava(program, stdin);
     return inputMap ? remap(trace, inputMap) : trace;
   }
 
@@ -100,7 +111,7 @@ export function runIn(language: LangId, source: string, inputs = ''): Trace {
     return { steps: [], stdout: '', heap: [], error: (error as Error).message };
   }
 
-  const trace = runJava(translated.code);
+  const trace = runJava(translated.code, stdin);
   const map = inputMap ? translated.map.map((line) => atLine(inputMap, line)) : translated.map;
   return remap(trace, map);
 }

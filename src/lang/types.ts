@@ -9,7 +9,13 @@ export class TranslateError extends Error {
   }
 }
 
-export type LangSample = { id: string; label: string; code: string };
+export type LangSample = {
+  id: string;
+  label: string;
+  code: string;
+  /** text to preload into the standard-input box when this sample is picked */
+  stdin?: string;
+};
 
 export type Lang = {
   id: LangId;

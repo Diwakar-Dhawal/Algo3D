@@ -69,7 +69,14 @@ npm run api:smoke
 6. **Commit the checklist in the same commit as the code change.** A code commit that closes an item without updating `CHECKLIST.md` is incomplete.
 7. **Keep entries honest.** Partial work stays open with a note about what remains; a passing build is not the same as a working feature.
 
+## Standard input
+
+Java reads standard input through `Scanner` (`next`, `nextLine`, `nextInt`, `nextLong`, `nextDouble`, `nextBoolean`,
+`hasNext*`, `close`). The buffer lives in `src/lang/stdin.ts` — a language-agnostic reader whose cursor follows
+`java.util.Scanner`, including the `nextInt()` + `nextLine()` gotcha. `runIn(language, source, inputs, stdin)` carries it
+through, so enabling `input()`, `cin >>` or `readline()` later is a translator change plus UI, not a new engine feature.
+The UI shows the standard-input box for Java only until those modes can read it.
+
 ## Things that are deliberately out of scope
 
-- `Scanner`, `cin` and stdin: values go through the Inputs panel instead.
 - Network, threads, files and time in user programs: they are not part of the traced subset, and the translators should reject them with a clear message.

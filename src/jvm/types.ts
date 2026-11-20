@@ -10,6 +10,10 @@ export type Val =
   | { t: 'ref'; id: number }
   | { t: 'ns'; name: string }
   | { t: 'out' }
+  /** System.in, only useful as the argument to `new Scanner(...)` */
+  | { t: 'in' }
+  /** a Scanner over the shared standard-input buffer */
+  | { t: 'scanner' }
   /** lambda or method reference, resolved through the machine's closure table */
   | { t: 'fn'; id: number }
   /** an eagerly evaluated stream pipeline */

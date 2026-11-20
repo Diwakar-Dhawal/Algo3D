@@ -60,7 +60,13 @@ function inputsFor(language: LangId, source: string): string {
   return formatInputs(suggestion.values, suggestion.call);
 }
 
-type LabMemory = { code: Record<string, string>; inputs: Record<string, string>; sample: Record<string, string> };
+type LabMemory = {
+  code: Record<string, string>;
+  inputs: Record<string, string>;
+  sample: Record<string, string>;
+  /** standard input, per language — only Java reads it today */
+  stdin: Record<string, string>;
+};
 type LabView = 'code' | 'visual' | 'panels';
 type Saved = LabMemory & {
   lang: LangId;
@@ -90,12 +96,13 @@ function loadSaved(): Partial<Saved> | null {
 
 /** one buffer per language, so switching back never loses your edits */
 function freshMemory(saved: Partial<Saved> | null): LabMemory {
-  const memory: LabMemory = { code: {}, inputs: {}, sample: {} };
+  const memory: LabMemory = { code: {}, inputs: {}, sample: {}, stdin: {} };
   for (const def of LANGS) {
     const source = saved?.code?.[def.id] ?? sampleCode(def.id, def.defaultSample);
     memory.code[def.id] = source;
     memory.sample[def.id] = saved?.sample?.[def.id] ?? def.defaultSample;
     memory.inputs[def.id] = saved?.inputs?.[def.id] ?? inputsFor(def.id, source);
+    memory.stdin[def.id] = saved?.stdin?.[def.id] ?? '';
   }
   return memory;
 }
@@ -144,6 +151,7 @@ export function CodeLab({
   const sampleId = memory.sample[lang];
   const code = memory.code[lang];
   const inputs = memory.inputs[lang];
+  const stdins = memory.stdin[lang] ?? '';
   // once the buffer drifts from the picked sample the select must say so
   const chosenSample = langDef.samples.find((option) => option.id === sampleId);
   const isCustom = !chosenSample || chosenSample.code !== code;
@@ -308,7 +316,7 @@ export function CodeLab({
     remember(target, { code: save.code, inputs: save.inputs });
     setLoaded(save);
     setSavesOpen(false);
-    run(save.code, target, save.inputs);
+    run(save.code, target, save.inputs, memory.stdin[target] ?? '');
     // the drawing that travelled with the program comes back onto the board
     if (save.board && save.board.length) {
       writePersonalBoard(user?.id ?? null, save.board);
@@ -318,11 +326,15 @@ export function CodeLab({
     }
   };
 
-  const remember = (language: LangId, patch: Partial<{ code: string; inputs: string; sample: string }>) => {
+  const remember = (
+    language: LangId,
+    patch: Partial<{ code: string; inputs: string; sample: string; stdin: string }>
+  ) => {
     setMemory((prev) => ({
       code: patch.code === undefined ? prev.code : { ...prev.code, [language]: patch.code },
       inputs: patch.inputs === undefined ? prev.inputs : { ...prev.inputs, [language]: patch.inputs },
       sample: patch.sample === undefined ? prev.sample : { ...prev.sample, [language]: patch.sample },
+      stdin: patch.stdin === undefined ? prev.stdin : { ...prev.stdin, [language]: patch.stdin },
     }));
   };
 
@@ -409,10 +421,10 @@ export function CodeLab({
     setPlaying((p) => !p);
   };
 
-  const run = (source: string, language: LangId = lang, box = inputs) => {
+  const run = (source: string, language: LangId = lang, box = inputs, feed = stdins) => {
     if (!mayRun) return;
     recordRun();
-    const next = runIn(language, source, box);
+    const next = runIn(language, source, box, feed);
     setTrace(next);
     setIndex(0);
     setPlaying(false);
@@ -530,12 +542,15 @@ export function CodeLab({
     if (!canType) return;
     const sample = langDef.samples.find((s) => s.id === id);
     if (!sample) return;
-    const next = inputsFor(lang, sample.code);
+    // a sample that reads stdin starts with an empty values box, so nothing is
+    // injected over the variables it declares
+    const next = sample.stdin ? '' : inputsFor(lang, sample.code);
+    const feed = sample.stdin ?? '';
     setInputsDirty(false);
-    remember(lang, { code: sample.code, inputs: next, sample: id });
+    remember(lang, { code: sample.code, inputs: next, sample: id, stdin: feed });
     setBreakpoints(new Set());
     if (inRoom) rooms.push({ language: lang, code: sample.code, inputs: next });
-    run(sample.code, lang, next);
+    run(sample.code, lang, next, feed);
   };
 
   const pickLang = (id: LangId) => {
@@ -980,6 +995,31 @@ export function CodeLab({
             Any name, any value — <code>[1, 2]</code>, <code>2.5</code>, <code>true</code>, or an expression in this
             language. A <code>call f(args)</code> line runs inside your program and prints the result.
           </p>
+
+          {lang === 'java' ? (
+            <label className="field stdin-field">
+              <span>Standard input · Scanner</span>
+              <textarea
+                className="inputs-box inputs-stdin"
+                value={stdins}
+                spellCheck={false}
+                readOnly={!canType}
+                onChange={(event) => {
+                  if (!canType) return;
+                  remember(lang, { stdin: event.target.value });
+                }}
+                placeholder={'5\n4 8 1 9 3'}
+                rows={3}
+              />
+            </label>
+          ) : null}
+          {lang === 'java' ? (
+            <p className="rail-hint inputs-hint">
+              What <code>Scanner</code> reads: <code>in.nextInt()</code> takes the next number,{' '}
+              <code>in.nextLine()</code> the rest of the line.
+            </p>
+          ) : null}
+
           <div className="inputs-actions">
             <button className="btn-gold" onClick={() => run(code, lang)} disabled={!mayRun}>
               Run with inputs
