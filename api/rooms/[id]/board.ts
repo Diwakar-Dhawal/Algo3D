@@ -1,11 +1,12 @@
 /**
  * GET /api/rooms/:id/board  → the shared whiteboard (any member may look)
- * PUT /api/rooms/:id/board  → replace it (needs the `editBoard` capability)
+ * PUT /api/rooms/:id/board  → add to it (needs the `editBoard` capability)
  *
- * One row per room, compare-and-set on `version`. The browser merges its copy
- * with the newest server copy before pushing, so two people drawing at once
- * rarely lose strokes; the server still decides who may write at all. Viewers
- * get 403 here even if they craft the request by hand.
+ * One row per room, compare-and-set on `version`. A save is merged into the row
+ * it read, newest copy of each element wins, so a client working from a stale
+ * drawing can add to the board but never take another person's stroke away. The
+ * browser merges before it pushes too, but only the server sees every write.
+ * Viewers get 403 here even if they craft the request by hand.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { db, json, readBody, requireUser } from '../../_lib.js';
@@ -33,6 +34,46 @@ async function loadBoard(roomId: number): Promise<BoardRow | null> {
     [roomId]
   )) as BoardRow[];
   return rows[0] ?? null;
+}
+
+type Element = { id?: string; version?: number; versionNonce?: number; isDeleted?: boolean } & Record<
+  string,
+  unknown
+>;
+
+/**
+ * Newest copy per element, the same rule the browser uses. A deletion travels
+ * as the same id with a higher `version` and `isDeleted: true`, so erasing still
+ * works; elements without an id (there should be none) are kept as they are.
+ */
+function mergeElements(current: readonly unknown[], incoming: readonly unknown[]): unknown[] {
+  const byId = new Map<string, Element>();
+  const loose: unknown[] = [];
+  for (const raw of current) {
+    const element = raw as Element;
+    if (element && typeof element === 'object' && element.id) byId.set(String(element.id), element);
+  }
+  for (const raw of incoming) {
+    const element = raw as Element;
+    if (!element || typeof element !== 'object') continue;
+    if (!element.id) {
+      loose.push(element);
+      continue;
+    }
+    const existing = byId.get(String(element.id));
+    if (!existing) {
+      byId.set(String(element.id), element);
+      continue;
+    }
+    const mine = Number(element.version) || 0;
+    const theirs = Number(existing.version) || 0;
+    const keepIncoming =
+      mine !== theirs
+        ? mine > theirs
+        : (Number(element.versionNonce) || 0) >= (Number(existing.versionNonce) || 0);
+    byId.set(String(element.id), keepIncoming ? element : existing);
+  }
+  return [...byId.values(), ...loose];
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -79,18 +120,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     json(res, 400, { error: 'elements must be an array' });
     return;
   }
-  if (body.elements.length > MAX_ELEMENTS) {
+
+  const baseVersion = Number(body.baseVersion);
+  const compare = Number.isInteger(baseVersion) && baseVersion >= 0 ? baseVersion : null;
+
+  // read, merge, then swap on the version that was read: an element added
+  // between the read and the update can never be overwritten by this write
+  const current = await loadBoard(roomId);
+  const currentVersion = current ? Number(current.version) || 0 : 0;
+  if (compare !== null && compare !== currentVersion) {
+    json(res, 409, { error: 'the board moved on — try again', board: boardShape(current) });
+    return;
+  }
+
+  const currentElements = Array.isArray(current?.elements) ? (current.elements as unknown[]) : [];
+  const merged = mergeElements(currentElements, body.elements);
+  if (merged.length > MAX_ELEMENTS) {
     json(res, 413, { error: 'the board is too full — erase a few things first' });
     return;
   }
-  const encoded = JSON.stringify(body.elements);
+  const encoded = JSON.stringify(merged);
   if (encoded.length > MAX_BOARD_CHARS) {
     json(res, 413, { error: 'the board is too large to save' });
     return;
   }
-
-  const baseVersion = Number(body.baseVersion);
-  const compare = Number.isInteger(baseVersion) && baseVersion >= 0 ? baseVersion : null;
 
   const rows = (await db().query(
     `insert into room_board (room_id, elements, version, updated_by)
@@ -100,9 +153,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                  version    = room_board.version + 1,
                  updated_by = excluded.updated_by,
                  updated_at = now()
-           where $4::bigint is null or room_board.version = $4::bigint
+           where room_board.version = $4::bigint
       returning elements, version, updated_at`,
-    [roomId, encoded, user.id, compare]
+    [roomId, encoded, user.id, currentVersion]
   )) as BoardRow[];
 
   if (!rows.length) {

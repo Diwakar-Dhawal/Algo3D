@@ -24,6 +24,10 @@ const POLL_MS = 1000;
 const POLL_HIDDEN_MS = 6000;
 /** a paused stroke is saved after this, so a short breath is enough to sync */
 const PUSH_MS = 300;
+/** a save that never reached the server is tried again this soon */
+const RETRY_MS = 2500;
+/** give up after this many unattended retries; the next stroke tries again */
+const MAX_RETRIES = 4;
 
 type Scene = { elements: BoardElement[]; version: number };
 
@@ -41,6 +45,8 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
   const localRef = useRef<BoardElement[]>([]);
   const readyRef = useRef(false);
   const timerRef = useRef<number | undefined>(undefined);
+  const retryRef = useRef<number | undefined>(undefined);
+  const retriesRef = useRef(0);
   const savingRef = useRef(false);
   const againRef = useRef(false);
 
@@ -60,6 +66,8 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
     sceneRef.current = EMPTY;
     readyRef.current = false;
     localRef.current = [];
+    retriesRef.current = 0;
+    if (retryRef.current) window.clearTimeout(retryRef.current);
     setScene(EMPTY);
     setReady(false);
     setStatus('loading');
@@ -110,36 +118,60 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
     const local = localRef.current;
     let base = versionRef.current;
     let savedOk = false;
+    /** the server refused the drawing itself (too big, wrong role): retrying will not help */
+    let rejected = false;
+    /** a refusal carries the board that beat us, so the retry sends its union */
+    let carry: BoardElement[] | null = null;
 
     for (let attempt = 0; attempt < 3 && !savedOk; attempt++) {
-      let merged = local;
-      // take whatever landed while we were drawing, then save the union
+      let merged = carry ?? local;
+      // catch up on whatever landed since our version before saving on top of
+      // it. A clash (`unchanged` with no elements) means the server already has
+      // what we read, so the local scene is the whole picture again.
       const latest = await roomsApi.board(roomId, base || undefined);
-      if (latest.ok && latest.data?.board && !latest.data.board.unchanged) {
-        merged = mergeElements(local, latest.data.board.elements as BoardElement[]);
-        base = latest.data.board.version;
+      if (latest.ok && latest.data?.board) {
+        if (!latest.data.board.unchanged) {
+          merged = mergeElements(merged, latest.data.board.elements as BoardElement[]);
+          base = latest.data.board.version;
+        }
+      } else if (latest.status !== 0 && latest.status < 500) {
+        rejected = true;
+        break;
       }
 
       const result = await roomsApi.pushBoard(roomId, { elements: merged, baseVersion: base });
       const saved = result.data?.board;
       if (result.ok && saved) {
         versionRef.current = saved.version;
-        // the surface already shows this; publishing keeps the shared reference
-        // in step so the next poll cannot hand back the drawing it replaced
-        publish(merged, saved.version);
+        // the server merged our strokes with whatever landed since the read, so
+        // its copy is the union — publishing it also picks up an element that
+        // arrived during the push
+        publish(saved.elements as BoardElement[], saved.version);
         setStatus('live');
         savedOk = true;
       } else if (result.status === 409 && saved) {
-        // someone else saved first: adopt their version and try the merge again
+        // someone else saved first: adopt their version and their board, then
+        // send the union. Keeping only the version and letting the next read
+        // answer `unchanged` is what used to save our stale drawing over theirs.
         base = saved.version;
         versionRef.current = saved.version;
+        carry = mergeElements(merged, saved.elements as BoardElement[]);
       } else {
-        setStatus('offline');
+        rejected = result.status >= 400 && result.status < 500 && result.status !== 409;
+        setStatus(result.status === 0 || result.status >= 500 ? 'offline' : 'live');
         break;
       }
     }
 
     savingRef.current = false;
+    if (savedOk) {
+      retriesRef.current = 0;
+    } else if (!rejected && !againRef.current && retriesRef.current < MAX_RETRIES) {
+      // a dropped connection must not cost the drawing: the same buffer is
+      // tried again shortly, because no newer stroke will trigger a push
+      retriesRef.current += 1;
+      retryRef.current = window.setTimeout(() => void flush(), RETRY_MS);
+    }
     if (againRef.current) {
       againRef.current = false;
       void flush();
@@ -159,6 +191,7 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
   useEffect(
     () => () => {
       if (timerRef.current) window.clearTimeout(timerRef.current);
+      if (retryRef.current) window.clearTimeout(retryRef.current);
     },
     []
   );

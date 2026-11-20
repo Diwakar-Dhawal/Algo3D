@@ -517,6 +517,10 @@ export function CodeLab({
     const timer = setTimeout(() => {
       const nextIndex = safe + 1;
       setIndex(nextIndex);
+      // the playhead is shared, so playing has to move it for everyone the same
+      // way an arrow key does; without this a joiner sat on the first step until
+      // the driver clicked or scrubbed
+      if (inRoom && mayDrive) rooms.push({ index: nextIndex });
       if (breakpoints.has(steps[nextIndex]?.line ?? -1)) setPlaying(false);
     }, BASE_MS / speed);
     return () => clearTimeout(timer);
