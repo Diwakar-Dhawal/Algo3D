@@ -73,6 +73,7 @@ _Nothing known._
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
 
+- [x] `ui` **Rooms step in the tour** — step 10 spotlights the Rooms button, falling back to the ☰ menu on phones and the sign-in button when signed out; targets are now chosen in priority order, not DOM order. `2d9d6e3`
 - [x] `ui` **Tour highlights on phones** — each step now asks the lab for the pane it describes (`algo3d:show-pane`), the help step falls back to the ☰ button, and every step names its section so Back from the library/board returns to the lab. All ten steps confirmed spotlit at 390 px. `792c52d`
 - [x] `ui` **First-run tour** — ten spotlit steps across the header, editor, saved codes, run, playback, inspector, library and board; opens once per browser (`algo3d:tour`), reachable again from “Replay the tour” in the shortcut sheet. Mobile: the card falls back to a centred card when the target pane is hidden. `a0b8810`
 
