@@ -405,13 +405,23 @@ export function CodeLab({
     if (shared.version <= appliedRoomVersion.current) return;
     appliedRoomVersion.current = shared.version;
 
+    // The tab that holds the typing lease is the source of truth: its own save
+    // coming back carries the text as of one round trip ago, and writing that
+    // into the buffer is what put the caret back at the end of the last saved
+    // line mid-sentence. A takeover hands the lease over, so the other tab is
+    // adopted normally once it starts typing.
+    const mine = shared.driver?.userId === meId;
     const target = (LANGS.some((def) => def.id === shared.language) ? shared.language : 'java') as LangId;
-    setLang(target);
-    setInputsDirty(true);
-    remember(target, { code: shared.code, inputs: shared.inputs });
-    setTrace(runIn(target, shared.code, shared.inputs));
-    setIndex(shared.index);
-    setSelected(null);
+    const sameSource = target === lang && shared.code === code && shared.inputs === inputs;
+    if (!mine && !sameSource) {
+      setLang(target);
+      setInputsDirty(true);
+      remember(target, { code: shared.code, inputs: shared.inputs });
+      setTrace(runIn(target, shared.code, shared.inputs));
+      setSelected(null);
+    }
+    // the playhead is shared either way, so a joiner follows the editor's step
+    if (shared.index !== index) setIndex(shared.index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomSession?.room.id, roomState?.version]);
 

@@ -41,8 +41,8 @@ type RoomsValue = {
 
 const RoomsContext = createContext<RoomsValue | null>(null);
 
-/** how often the open room is polled, in ms */
-const POLL_MS = 1500;
+/** how often the open room is polled, in ms: a joiner sees a keystroke this soon */
+const POLL_MS = 900;
 const POLL_HIDDEN_MS = 6000;
 /** how many times a conflicting push is re-sent on the newer version */
 const MAX_REBASE = 2;
@@ -180,8 +180,10 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       if (!activeId) return;
       queueRef.current = { ...queueRef.current, ...patch };
       if (timerRef.current) window.clearTimeout(timerRef.current);
-      // step changes feel laggy if they wait as long as keystrokes
-      timerRef.current = window.setTimeout(() => void flush(), patch.index !== undefined ? 140 : 450);
+      // short enough that a burst of keystrokes is still batched, long enough
+      // that typing does not turn into one request per character; step changes
+      // land sooner because a scrub is expected to answer immediately
+      timerRef.current = window.setTimeout(() => void flush(), patch.index !== undefined ? 110 : 250);
     },
     [activeId, flush]
   );

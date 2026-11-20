@@ -88,15 +88,16 @@ export function Whiteboard() {
   const status: string = roomId ? (canDraw ? board.status : 'view only') : 'saved in this browser';
 
   // For a shared board, `initial` is the scene at mount and `remote` only ever
-  // carries a genuinely newer drawing. Unchanged polls must not recreate the
-  // array the surface is looking at, so we keep the current elements reference
-  // unless the board actually changed.
+  // carries a genuinely newer drawing. The mount scene is seeded once: swapping
+  // it later re-renders the surface without changing what it shows.
   const [roomInitial, setRoomInitial] = useState<BoardElement[]>([]);
   useEffect(() => {
-    if (!roomId) return;
-    if (board.ready && board.elements.length && board.elements.length !== roomInitial.length) {
-      setRoomInitial(board.elements);
+    if (!roomId) {
+      setRoomInitial([]);
+      return;
     }
+    if (!board.ready || roomInitial.length) return;
+    if (board.elements.length) setRoomInitial(board.elements);
   }, [roomId, board.ready, board.elements, roomInitial.length]);
 
   const sharedInitial = roomId ? roomInitial : personal;
@@ -105,7 +106,7 @@ export function Whiteboard() {
 
   /** take the room's drawing home, without losing what is already on your board */
   const keepCopy = useCallback(() => {
-    const room = sharedInitial;
+    const room = board.elements.length ? board.elements : sharedInitial;
     if (!room.length) return;
     const merged = mergeElements(personalRef.current, room);
     writePersonalBoard(userId, merged);
@@ -113,7 +114,7 @@ export function Whiteboard() {
     setCopyNote(`saved to your board · ${merged.length} shapes`);
     if (copyTimer.current) window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => setCopyNote(null), 3500);
-  }, [sharedInitial, userId]);
+  }, [board.elements, sharedInitial, userId]);
 
   return (
     <section className="board" data-tour="board">

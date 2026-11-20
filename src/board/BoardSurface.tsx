@@ -5,15 +5,16 @@
  * A shared board polls on a fixed cadence. The parent must not hand the surface
  * a fresh array on every poll when nothing changed, and the surface must not
  * re-apply the scene from `remote` on every heartbeat either. This module
- * gates every remote rewrite on a content signature, and it tracks the last
- * applied scene so unchanged polls cannot nudge it through a new-array reference.
+ * gates every remote rewrite on a content signature, and it merges the incoming
+ * scene into the one on screen instead of replacing it: a poll may add, move or
+ * delete shapes, but it can never take away a stroke that has not been saved.
  */
 import { useEffect, useRef } from 'react';
 import { CaptureUpdateAction, Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import { useTheme } from '../theme/ThemeContext';
-import { boardSignature, type BoardElement } from './elements';
+import { boardSignature, mergeElements, type BoardElement } from './elements';
 
 type Props = {
   /** scene present at mount; later remote changes arrive through `remote` */
@@ -28,24 +29,22 @@ type Props = {
 export default function BoardSurface({ initial, remote, remoteVersion, readOnly, onChange }: Props) {
   const { theme } = useTheme();
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  /** identity of the scene this surface is showing; every write updates it */
   const lastRef = useRef(boardSignature(initial));
-  const applyingRef = useRef(false);
 
-  // a remote scene replaces the local one without touching undo history,
-  // but only when the remote content actually differs from what we last applied
+  // newest-wins per element, applied without touching undo history: our own
+  // unsaved strokes are kept, and a deletion still travels because it arrives
+  // as the same element with a higher version and `isDeleted` set
   useEffect(() => {
     if (!remote || !remoteVersion) return;
     const api = apiRef.current;
     if (!api) return;
-    const signature = boardSignature(remote);
+    const onScreen = api.getSceneElementsIncludingDeleted() as unknown as BoardElement[];
+    const merged = mergeElements(onScreen, remote);
+    const signature = boardSignature(merged);
     if (signature === lastRef.current) return;
     lastRef.current = signature;
-    applyingRef.current = true;
-    api.updateScene({ elements: remote as never, captureUpdate: CaptureUpdateAction.NEVER });
-    const timer = window.setTimeout(() => {
-      applyingRef.current = false;
-    }, 350);
-    return () => window.clearTimeout(timer);
+    api.updateScene({ elements: merged as never, captureUpdate: CaptureUpdateAction.NEVER });
   }, [remote, remoteVersion]);
 
   return (
@@ -58,11 +57,10 @@ export default function BoardSurface({ initial, remote, remoteVersion, readOnly,
       }}
       onChange={(elements) => {
         const next = elements as unknown as BoardElement[];
-        if (applyingRef.current) {
-          lastRef.current = boardSignature(next);
-          return;
-        }
         const signature = boardSignature(next);
+        // an echo of what we just applied, or of our own last edit: nothing new
+        // to send. A stroke drawn straight after a remote apply still differs,
+        // so it is not swallowed the way a timed “ignore” window swallowed it.
         if (signature === lastRef.current) return;
         lastRef.current = signature;
         onChange(next);

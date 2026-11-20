@@ -6,11 +6,12 @@
  * retries on a version clash, which is what keeps two people drawing at the
  * same time from wiping each other's strokes.
  *
- * A poll that did not change the drawing must not recreate the elements array
- * that reaches the Excalidraw surface. The server already sends
- * `unchanged: true` with an empty `elements` on current polls, so the client
- * keeps the last known good drawing in place until the server sends a newer,
- * changed board.
+ * The scene and its version travel as one value. Handing the surface a newer
+ * version next to an older element list is what made an owner's strokes vanish
+ * a moment after they paused: the save response bumped the version, the shared
+ * board re-rendered, and the surface re-applied the scene from the previous
+ * poll. Nothing here exposes a version that was not read with its own elements,
+ * and identical content keeps the array the surface is already looking at.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { roomsApi } from '../rooms/api';
@@ -18,29 +19,48 @@ import { mergeElements, boardSignature, type BoardElement } from './elements';
 
 export type BoardStatus = 'loading' | 'live' | 'saving' | 'offline';
 
-const POLL_MS = 2200;
+/** how long a joiner waits before seeing a stroke the editor just paused on */
+const POLL_MS = 1000;
 const POLL_HIDDEN_MS = 6000;
-const PUSH_MS = 650;
+/** a paused stroke is saved after this, so a short breath is enough to sync */
+const PUSH_MS = 300;
+
+type Scene = { elements: BoardElement[]; version: number };
+
+const EMPTY: Scene = { elements: [], version: 0 };
 
 export function useRoomBoard(roomId: number | null, canDraw: boolean) {
-  const [elements, setElements] = useState<BoardElement[]>([]);
-  const [version, setVersion] = useState(0);
+  const [scene, setScene] = useState<Scene>(EMPTY);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<BoardStatus>('loading');
 
+  /** the newest board the server told us about, used as the push base */
   const versionRef = useRef(0);
+  /** the scene we last published, so identical polls keep their reference */
+  const sceneRef = useRef<Scene>(EMPTY);
   const localRef = useRef<BoardElement[]>([]);
   const readyRef = useRef(false);
   const timerRef = useRef<number | undefined>(undefined);
   const savingRef = useRef(false);
   const againRef = useRef(false);
 
+  /**
+   * Publish a scene and the version it was read at, together. Identical content
+   * is dropped: a poll that changed nothing must not recreate the elements array
+   * the Excalidraw surface holds.
+   */
+  const publish = useCallback((elements: BoardElement[], version: number) => {
+    if (boardSignature(elements) === boardSignature(sceneRef.current.elements)) return;
+    sceneRef.current = { elements, version };
+    setScene(sceneRef.current);
+  }, []);
+
   useEffect(() => {
     versionRef.current = 0;
+    sceneRef.current = EMPTY;
     readyRef.current = false;
     localRef.current = [];
-    setElements([]);
-    setVersion(0);
+    setScene(EMPTY);
     setReady(false);
     setStatus('loading');
     if (!roomId) return;
@@ -53,23 +73,12 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
       if (!live) return;
       const board = result.data?.board;
       if (result.ok && board) {
-        // A current poll returns `unchanged: true` with no elements.
-        // A genuinely newer board arrives with a new version and a real
-        // elements array. Either way we keep the last known drawing stable
-        // until the content actually changes.
+        // a current poll answers `unchanged: true` with no elements at all; a
+        // newer board carries the whole drawing, and only then does the version
+        // and the scene move forward together
         if (!board.unchanged && board.version > versionRef.current) {
-          const next = board.elements as BoardElement[];
-          if (boardSignature(next) !== boardSignature(elements)) {
-            versionRef.current = board.version;
-            setVersion(board.version);
-            setElements(next);
-          } else {
-            // newer version but identical content: still advance the version
-            // so future pushes use the right base, but do not recreate the
-            // elements array the surface is looking at.
-            versionRef.current = board.version;
-            setVersion(board.version);
-          }
+          versionRef.current = board.version;
+          publish(board.elements as BoardElement[], board.version);
         }
         if (!readyRef.current) {
           readyRef.current = true;
@@ -87,7 +96,7 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
       live = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [roomId]);
+  }, [roomId, publish]);
 
   const flush = useCallback(async () => {
     if (!roomId || !canDraw) return;
@@ -115,8 +124,9 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
       const saved = result.data?.board;
       if (result.ok && saved) {
         versionRef.current = saved.version;
-        setVersion(saved.version);
-        if (merged.length !== local.length) setElements(merged);
+        // the surface already shows this; publishing keeps the shared reference
+        // in step so the next poll cannot hand back the drawing it replaced
+        publish(merged, saved.version);
         setStatus('live');
         savedOk = true;
       } else if (result.status === 409 && saved) {
@@ -134,7 +144,7 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
       againRef.current = false;
       void flush();
     }
-  }, [roomId, canDraw]);
+  }, [roomId, canDraw, publish]);
 
   const push = useCallback(
     (next: readonly BoardElement[]) => {
@@ -153,5 +163,5 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
     []
   );
 
-  return { elements, version, ready, status, push };
+  return { elements: scene.elements, version: scene.version, ready, status, push };
 }

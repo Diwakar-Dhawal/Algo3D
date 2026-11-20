@@ -11,14 +11,13 @@ Areas: `ui` · `editor` · `runtime` · `lang` · `viz` · `library` · `saves` 
 
 ## In progress
 
-- [ ] `board` **Shared whiteboard wipes every few seconds** — in progress: stabilize the elements reference so unchanged polls do not create new arrays / re-apply the scene; guard `BoardSurface` so only real updates rewrite the scene.
+_(nothing right now)_
 
 ---
 
 ## P0 — defects
 
-- [ ] `board` **Shared whiteboard wipes every few seconds** — in a room, the owner’s strokes disappear a couple of seconds after drawing. Root cause located: `useRoomBoard`/Whiteboard keep feeding `BoardSurface` a fresh `board.elements` array on nearly every poll heartbeat, and the surface re-applies the scene from `remote` each tick; `unchanged` polls still arrive with a new array reference, so unchanged polls rewrite the canvas. Private boards are unaffected — they never poll and never receive `remote`. Same polling/new-array hazard class exists in the code lab and room program editor; the lab currently guards unchanged polls with `shared.version <= appliedRoomVersion.current` and is not wiping, but it is the same hazard for any future shared canvas/editor.
-  - Fix targeted at `src/board/useRoomBoard.ts`, `src/board/Whiteboard.tsx`, `src/board/BoardSurface.tsx`. _P0 · board · S_
+_(none open)_
 
 ---
 
@@ -84,6 +83,8 @@ Areas: `ui` · `editor` · `runtime` · `lang` · `viz` · `library` · `saves` 
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
 
+- [x] `editor` **The shared code editor stopped rewinding itself** — the room adopt effect compared versions only, so the save it had just sent came back as “newer” content and was written into the buffer as of one round trip earlier: the caret landed at the end of the last saved line and the trace was rebuilt every few seconds. A tab that holds the typing lease no longer adopts its own echo (a takeover hands the lease over and is adopted normally), identical source is no longer rewritten at all, and the shared playhead is followed on its own. Room poll 1500 → 900 ms and keystroke push debounce 450 → 250 ms, so a joiner sees typing about a second after the editor pauses instead of a few. Verified with `tsc` + `build`; the two-tab room check was not run from here (the room flow needs a signed-in account). _2026-11-20 · `HASH2`_
+- [x] `board` **Shared whiteboard no longer wipes when the owner pauses** — the drawing and its version now travel as one value in `useRoomBoard`, so the save response can no longer bump the version while the surface still holds the previous poll’s elements (that pairing was the wipe: the version changed, the surface re-applied the older scene, and it did so again on every save). `BoardSurface` also merges an incoming scene newest-wins into what is on screen instead of replacing it, so a poll can add, move or delete shapes but never remove an unsaved stroke, and the 350 ms “ignore while applying” window that swallowed a stroke drawn right after a remote update is gone (echoes are filtered by scene identity instead). Board push debounce 650 → 300 ms, poll 2200 → 1000 ms. The private board path is untouched. Verified with `tsc` + `build`; the two-tab owner/joinee check was not run from here (rooms need a signed-in account). _2026-11-20 · `HASH1`_
 - [x] `ui` **Sample gallery** — the sample dropdown is now a card dialog with a three-line code preview and a “reads console input” badge; picking a card loads the program, traces it and lands on step 1, so the scene exists before the first keystroke. _2026-11-20 · `827609c`_
 - [x] `runtime` **Copy the current step as an image** — composes the 3D stage with the step note, line and file into a 1200 px PNG on the clipboard, falling back to a download (with a 1.5 s deadline so a hung permission prompt cannot wedge the button); `preserveDrawingBuffer` is now on the shared canvas. Verified: 51 KB `image/png` clipboard item, note confirmed. _2026-11-20 · `827609c`_
 - [x] `ui` **Guest-first saves** — a signed-out visitor keeps up to 20 programs in `algo3d:saves.v1`, badged “this device”, with the device-only warning in both the drawer and the save popover; star, rename and delete work locally. Signing in still does not migrate them (see P2). _2026-11-20 · `827609c`_
