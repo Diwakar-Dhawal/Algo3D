@@ -8,6 +8,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { db } from '../api/_lib';
+import { onEvent } from '../api/_events';
 import config from '../api/config';
 import me from '../api/auth/me';
 import saves from '../api/saves/index';
@@ -18,6 +19,7 @@ import roomJoin from '../api/rooms/join';
 import roomItem from '../api/rooms/[id]';
 import roomState from '../api/rooms/[id]/state';
 import roomBoard from '../api/rooms/[id]/board';
+import { closeIdleRooms } from '../api/rooms/_util';
 
 for (const file of ['.env.local', '.env']) {
   if (!existsSync(file)) continue;
@@ -63,14 +65,23 @@ function makeReq(url: string, init: { method?: string; auth?: string; body?: unk
     headers: { authorization: init.auth ?? '', host: 'localhost:3000' } as Record<string, string>,
     on(event: string, fn: (arg?: unknown) => void) {
       listeners[event] = listeners[event] ? [...listeners[event], fn] : [fn];
+      // the body is delivered once somebody is listening for its end, not before
+      if (event === 'end') setTimeout(emit, 0);
       return req;
     },
     destroy() {},
   };
-  setImmediate(() => {
+  // A signed-in handler awaits the session before it reads the body, so the
+  // body events have to wait for whoever is listening: firing them on the next
+  // tick left `readBody` waiting on an `end` that had already gone by, and the
+  // whole run died silently with nothing printed.
+  let fired = false;
+  function emit() {
+    if (fired) return;
+    fired = true;
     if (raw) listeners.data?.forEach((fn) => fn(Buffer.from(raw)));
     listeners.end?.forEach((fn) => fn());
-  });
+  }
   return req;
 }
 
@@ -115,6 +126,16 @@ async function run() {
     `select column_name from information_schema.columns where table_name = 'rooms'`
   )) as { column_name: string }[];
   check('rooms has both invite codes', roomColumns.some((row) => row.column_name === 'editor_code'));
+  check(
+    'rooms tracks activity and a close',
+    roomColumns.some((row) => row.column_name === 'last_active_at') &&
+      roomColumns.some((row) => row.column_name === 'closed_at'),
+    roomColumns.map((row) => row.column_name).join(',')
+  );
+  const idleIndex = (await sql.query(
+    `select indexname from pg_indexes where tablename = 'rooms' and indexname = 'rooms_idle_idx'`
+  )) as { indexname: string }[];
+  check('the idle sweep has its index', idleIndex.length === 1);
   const boardTable = (await sql.query("select to_regclass('public.room_board') as b")) as { b: string | null }[];
   check('room_board table exists', boardTable[0]?.b !== null);
 
@@ -237,6 +258,100 @@ async function run() {
       await saveItem(makeReq(`/api/saves/${id}`, { method: 'DELETE', auth }) as never, res as never);
       check('owner can delete', res.statusCode === 200 && parse(res).ok === true);
     }
+
+    // --- room lifecycle: pushes, idle close, reopen -----------------------
+    // the browser is not involved: the same handlers the app calls are run
+    // against the real database, and the event bus is watched for the payloads
+    // the WebSocket bridge forwards.
+    const events: string[] = [];
+    const stopEvents = onEvent((topic, event) => events.push(`${topic}|${event.type}`));
+
+    res = makeRes();
+    await rooms(
+      makeReq('/api/rooms', {
+        method: 'POST',
+        auth,
+        body: { name: 'Smoke room', language: 'java', code: 'class Main {}', inputs: '' },
+      }) as never,
+      res as never
+    );
+    const roomBody = parse(res);
+    const roomId = Number(roomBody.room?.id);
+    check('room create returns 201', res.statusCode === 201, `got ${res.statusCode}`);
+    check('a new room is open', roomBody.room?.closedAt === null, JSON.stringify(roomBody.room?.closedAt));
+
+    if (roomId) {
+      res = makeRes();
+      await roomState(
+        makeReq(`/api/rooms/${roomId}/state`, {
+          method: 'PUT',
+          auth,
+          body: { code: 'class Main { }', baseVersion: 1 },
+        }) as never,
+        res as never
+      );
+      check('state push is 200', res.statusCode === 200, `got ${res.statusCode}`);
+      check('state push is published to the room', events.includes(`room:${roomId}|state`), events.join(' '));
+
+      res = makeRes();
+      await roomBoard(
+        makeReq(`/api/rooms/${roomId}/board`, {
+          method: 'PUT',
+          auth,
+          body: { elements: [{ id: 'smoke-1', type: 'rectangle', version: 1 }], baseVersion: 0 },
+        }) as never,
+        res as never
+      );
+      check('board push is 200', res.statusCode === 200, `got ${res.statusCode}`);
+      check('board push is published to the room', events.includes(`room:${roomId}|board`), events.join(' '));
+
+      res = makeRes();
+      await roomItem(
+        makeReq(`/api/rooms/${roomId}`, { method: 'PATCH', auth, body: { name: 'Smoke room 2' } }) as never,
+        res as never
+      );
+      check('rename is 200', res.statusCode === 200, `got ${res.statusCode}`);
+      check('rename is published to the room', events.includes(`room:${roomId}|members`), events.join(' '));
+
+      const aged = (await sql.query('select last_active_at, closed_at from rooms where id = $1', [roomId])) as {
+        last_active_at: string;
+        closed_at: string | null;
+      }[];
+      check(
+        'a write counts as activity',
+        Date.now() - new Date(aged[0]?.last_active_at ?? 0).getTime() < 60_000,
+        aged[0]?.last_active_at
+      );
+      check('the room is open after activity', aged[0]?.closed_at === null);
+
+      // age it past the idle window: the sweep must close it and say so
+      await sql.query("update rooms set last_active_at = now() - interval '25 minutes' where id = $1", [roomId]);
+      const closedIds = await closeIdleRooms();
+      check('the idle sweep closes the aged room', closedIds.includes(roomId), closedIds.join(','));
+      check('the close is published to the room', events.includes(`room:${roomId}|closed`), events.join(' '));
+
+      res = makeRes();
+      await roomItem(makeReq(`/api/rooms/${roomId}?since=5`, { auth }) as never, res as never);
+      check(
+        'a poll of a closed room answers closed',
+        res.statusCode === 200 && parse(res).closed === true,
+        JSON.stringify(parse(res))
+      );
+
+      res = makeRes();
+      await roomItem(makeReq(`/api/rooms/${roomId}`, { auth }) as never, res as never);
+      const reopened = parse(res);
+      check(
+        'opening it again reopens it with its work intact',
+        res.statusCode === 200 && reopened.room?.closedAt === null && reopened.state?.code === 'class Main { }',
+        JSON.stringify({ closedAt: reopened.room?.closedAt, code: reopened.state?.code })
+      );
+
+      res = makeRes();
+      await roomItem(makeReq(`/api/rooms/${roomId}`, { method: 'DELETE', auth }) as never, res as never);
+      check('the test room is removed', res.statusCode === 200 && parse(res).ok === true, `got ${res.statusCode}`);
+    }
+    stopEvents();
   }
 
   console.log(results.join('\n'));

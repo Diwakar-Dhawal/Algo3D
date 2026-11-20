@@ -9,6 +9,7 @@
     "verify": "esbuild scripts/verify.ts --bundle --platform=node --format=cjs --outfile=.tmp/verify.cjs --log-level=error && node .tmp/verify.cjs",
     "preview": "vite preview",
     "db:push": "esbuild scripts/db-push.ts --bundle --platform=node --format=cjs --outfile=.tmp/db-push.cjs --log-level=error && node .tmp/db-push.cjs",
+    "ws:check": "esbuild scripts/ws-check.ts --bundle --platform=node --format=cjs --outfile=.tmp/ws-check.cjs --external:ws --log-level=error && node .tmp/ws-check.cjs",
     "api:smoke": "esbuild scripts/api-smoke.ts --bundle --platform=node --format=cjs --outfile=.tmp/api-smoke.cjs --log-level=error && node .tmp/api-smoke.cjs",
     "dev:api": "esbuild scripts/api-dev.ts --bundle --platform=node --format=cjs --outfile=.tmp/api-dev.cjs --external:ws --log-level=error && node --env-file=.env.local .tmp/api-dev.cjs"
   },
