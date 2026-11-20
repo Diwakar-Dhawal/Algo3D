@@ -113,11 +113,12 @@ export function Library() {
 
       <div className="lib-toolbar">
         <div className="lib-toolbar-head">
-          <span className="eyebrow">{topic.tag}</span>
           <h2 className="lib-toolbar-title">{topic.label}</h2>
-          <p className="lib-toolbar-blurb">{topic.blurb}</p>
+          <span className="tag">{topic.tag}</span>
         </div>
-        <Controls params={params} setParams={setParams} />
+        <div className="lib-toolbar-actions">
+          <Controls params={params} setParams={setParams} />
+        </div>
       </div>
 
       <main className="main" style={panelVars({ '--right-w': `${rightHidden ? 44 : right}px` })}>

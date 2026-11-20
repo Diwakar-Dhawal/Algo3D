@@ -134,14 +134,14 @@ button {
 
 .topbar {
   flex: none;
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 12px 22px;
+  gap: 16px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--bar);
-  backdrop-filter: blur(10px);
 }
 
 .brand {
@@ -166,6 +166,15 @@ button {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
 }
 
+.logo {
+  flex: none;
+  display: block;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(70, 55, 30, 0.14);
+}
+
 .brand-text h1 {
   margin: 0;
   font-family: var(--serif);
@@ -182,31 +191,40 @@ button {
   color: var(--faint);
 }
 
+/* the three sections, as one segmented control next to the wordmark */
 .modes {
+  flex: none;
   display: flex;
-  gap: 22px;
-  /* sit next to the account on the right instead of floating mid-header */
-  margin-left: auto;
-  margin-right: 6px;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--card-2);
 }
 
 .mode {
-  position: relative;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: none;
-  border: 0;
-  padding: 6px 2px;
+  padding: 6px 12px;
   font-size: 12px;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   color: var(--muted);
-  transition: color 0.18s;
+  white-space: nowrap;
+  transition: color 0.18s, background 0.18s, border-color 0.18s;
 }
 
 .mode:hover {
   color: var(--ink-2);
+  background: rgba(176, 141, 87, 0.08);
 }
 
 .mode.on {
   color: var(--ink);
+  font-weight: 600;
+  background: var(--card);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(70, 55, 30, 0.06);
 }
 
 /* phones get shorter labels so the header stays on one line */
@@ -214,14 +232,105 @@ button {
   display: none;
 }
 
-.mode.on::after {
-  content: '';
+/* right cluster: collaboration, appearance, help, account */
+.top-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.top-desktop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn.menu-btn {
+  display: none;
+}
+
+.menu-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.menu-btn.on {
+  border-color: var(--gold);
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+}
+
+/* the phone overflow menu */
+.menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+}
+
+.head-menu {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -13px;
-  height: 2px;
-  background: var(--gold);
+  z-index: 70;
+  top: calc(100% + 6px);
+  right: 10px;
+  width: min(248px, calc(100vw - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 16px 40px rgba(33, 28, 21, 0.16);
+  animation: menu-in 0.14s ease-out;
+}
+
+@keyframes menu-in {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  text-align: left;
+}
+
+.menu-row:hover {
+  background: var(--card-2);
+  color: var(--ink);
+}
+
+.menu-row kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.menu-value {
+  font-size: 11px;
+  color: var(--faint);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .theme-toggle {
@@ -1064,45 +1173,53 @@ button {
   flex: none;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 16px 24px;
-  padding: 10px 20px;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 9px 20px;
   border-bottom: 1px solid var(--line);
   background: var(--bar);
 }
 
 .lib-toolbar-head {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 220px;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .lib-toolbar-title {
   margin: 0;
+  font-family: var(--serif);
   font-size: 15px;
   font-weight: 600;
   color: var(--ink);
+  white-space: nowrap;
 }
 
-.lib-toolbar-blurb {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--ink-2);
-  line-height: 1.4;
+.lib-toolbar-actions {
+  display: flex;
+  flex: 1 1 300px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .lib-toolbar .ctrl {
-  flex: 1;
-  min-width: 260px;
+  width: 100%;
   flex-direction: row;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px 10px;
 }
 
 .lib-toolbar .ctrl .field {
-  flex: 1;
-  min-width: 150px;
+  flex: 0 1 200px;
+  min-width: 130px;
+}
+
+.lib-toolbar .ctrl .row,
+.lib-toolbar .ctrl .seg {
+  flex: 0 0 auto;
 }
 
 /* ---------------- library controls ---------------- */
@@ -2935,22 +3052,14 @@ button {
   }
 
   .modes {
-    gap: 12px;
+    gap: 2px;
     margin-right: 0;
   }
 
   .mode {
-    padding: 6px 0;
+    padding: 6px 10px;
     font-size: 11.5px;
     white-space: nowrap;
-  }
-
-  .mode-full {
-    display: none;
-  }
-
-  .mode-short {
-    display: inline;
   }
 
   .account {
@@ -3303,7 +3412,6 @@ button {
 }
 
 .help-btn {
-  margin-left: auto;
   font-size: 12px;
   font-weight: 600;
 }
@@ -3328,5 +3436,93 @@ button {
   .spinner {
     animation: none !important;
     opacity: 0.75;
+  }
+}
+
+/* ---------------- phone header: brand and account on top, sections below ---------------- */
+
+@media (max-width: 760px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .brand {
+    flex: 1 1 auto;
+  }
+
+  .brand-text p {
+    display: none;
+  }
+
+  .brand-text h1 {
+    font-size: 15px;
+  }
+
+  .logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  /* only sign in / avatar and the menu stay next to the wordmark */
+  .top-actions {
+    order: 3;
+    gap: 6px;
+  }
+
+  .top-desktop {
+    display: none;
+  }
+
+  .icon-btn.menu-btn {
+    display: grid;
+  }
+
+  /* the sections get a full-width row of their own, so nothing wraps oddly */
+  .modes {
+    order: 4;
+    flex: 1 1 100%;
+    margin: 2px 0 0;
+  }
+
+  .mode {
+    flex: 1 1 0;
+    padding: 7px 4px;
+    font-size: 11.5px;
+    text-align: center;
+  }
+
+  /* library options stack under the topic title instead of overflowing */
+  .lib-toolbar {
+    gap: 8px;
+    padding: 9px 12px;
+  }
+
+  .lib-toolbar-head,
+  .lib-toolbar-actions {
+    flex: 1 1 100%;
+  }
+
+  .lib-toolbar .ctrl {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .lib-toolbar .ctrl .field {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .mode-full {
+    display: none;
+  }
+
+  .mode-short {
+    display: inline;
   }
 }

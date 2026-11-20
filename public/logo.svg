@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Algo3D">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c8a771" />
+      <stop offset="1" stop-color="#a3803f" />
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffdf8" />
+      <stop offset="1" stop-color="#f6ead1" />
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8d5ac" />
+      <stop offset="1" stop-color="#d3bb8c" />
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2e3c4" />
+      <stop offset="1" stop-color="#ddc79b" />
+    </linearGradient>
+  </defs>
+
+  <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="url(#g)" />
+  <rect x="1.5" y="1.5" width="61" height="61" rx="15" fill="none" stroke="#8a6d3f" stroke-opacity=".45" stroke-width="1.5" />
+
+  <!-- isometric cube: the third dimension -->
+  <path d="M32 12 51 22.5 32 33 13 22.5Z" fill="url(#top)" />
+  <path d="M13 22.5 32 33v19L13 41.5Z" fill="url(#left)" />
+  <path d="M51 22.5 51 41.5 32 52V33Z" fill="url(#right)" />
+  <path d="M32 12 51 22.5 32 33 13 22.5Z" fill="none" stroke="#8a6d3f" stroke-opacity=".35" stroke-width="1.4" stroke-linejoin="round" />
+  <path d="M13 22.5 32 33 51 22.5M32 33v19" fill="none" stroke="#8a6d3f" stroke-opacity=".45" stroke-width="1.4" stroke-linejoin="round" />
+</svg>

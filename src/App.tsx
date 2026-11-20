@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { GoogleMark } from './auth/GoogleMark';
 import { RoomsProvider, useRooms } from './rooms/RoomContext';
 import { RoomsDrawer } from './rooms/RoomsDrawer';
-import { ThemeProvider, ThemeToggle } from './theme/ThemeContext';
+import { ThemeProvider, ThemeToggle, useTheme } from './theme/ThemeContext';
 import { PaneBoundary } from './components/PaneBoundary';
 import { ShortcutSheet } from './components/Shortcuts';
 
@@ -79,8 +79,21 @@ function Shell() {
   const [inviteCode] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '');
   const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { active } = useRooms();
+  const { user } = useAuth();
+  const { theme, toggle: toggleTheme } = useTheme();
   const roomId = active?.room.id ?? null;
+
+  // Esc closes the phone menu before anything else grabs it
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
 
   // joining a room takes you to the code lab, but a board you opened stays open
   useEffect(() => {
@@ -100,14 +113,14 @@ function Shell() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <div className="mark">A3</div>
+          <img className="logo" src="/logo.svg" alt="" width={34} height={34} />
           <div className="brand-text">
             <h1>Algo3D</h1>
             <p>Java, Python, JavaScript and C++, stepped through in three dimensions</p>
           </div>
         </div>
 
-        <nav className="modes">
+        <nav className="modes" aria-label="Sections">
           <button className={`mode ${mode === 'code' ? 'on' : ''}`} onClick={() => setMode('code')}>
             <span className="mode-full">Your code</span>
             <span className="mode-short">Code</span>
@@ -122,17 +135,72 @@ function Shell() {
           </button>
         </nav>
 
-        <ThemeToggle />
-        <button
-          className="icon-btn help-btn"
-          title="Keyboard shortcuts (?)"
-          aria-label="Keyboard shortcuts"
-          onClick={() => setShortcutsOpen(true)}
-        >
-          ?
-        </button>
-        <RoomsButton onOpen={() => setRoomsOpen(true)} />
-        <Account />
+        <div className="top-actions">
+          <div className="top-desktop">
+            <RoomsButton onOpen={() => setRoomsOpen(true)} />
+            <ThemeToggle />
+            <button
+              className="icon-btn help-btn"
+              title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
+              onClick={() => setShortcutsOpen(true)}
+            >
+              ?
+            </button>
+          </div>
+          <Account />
+          <button
+            className={`icon-btn menu-btn ${menuOpen ? 'on' : ''}`}
+            aria-label="More options"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+        </div>
+
+        {menuOpen && (
+          <>
+            <div className="menu-scrim" onClick={() => setMenuOpen(false)} role="presentation" />
+            <div className="head-menu" role="menu" aria-label="More options">
+              <button
+                className="menu-row"
+                role="menuitem"
+                onClick={() => toggleTheme()}
+              >
+                <span>Appearance</span>
+                <span className="menu-value">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+              </button>
+              <button
+                className="menu-row"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setShortcutsOpen(true);
+                }}
+              >
+                <span>Keyboard shortcuts</span>
+                <kbd>?</kbd>
+              </button>
+              {user ? (
+                <button
+                  className="menu-row"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setRoomsOpen(true);
+                  }}
+                >
+                  <span>Rooms</span>
+                  <span className="menu-value">{active ? `● ${active.room.name}` : 'Collaborate'}</span>
+                </button>
+              ) : null}
+            </div>
+          </>
+        )}
       </header>
 
       <PaneBoundary label={mode === 'library' ? 'Library' : 'Whiteboard'} resetKey={mode}>
