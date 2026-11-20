@@ -54,7 +54,8 @@ _Nothing known._
 - [ ] `rooms` In-room chat. _M_
 - [ ] `board` Import a saved program as a text node. _S_
 - [ ] `lang` C++: `std::sort/min/max/swap`, then `pair`, `vector<string>`, `map`/`set`. _M_
-- [ ] `lang` Java: widen whitelisted `String`, `Stream`, `Optional` and `Comparator` methods. _M_
+- [ ] `lang` **Java: numeric printing parity** — `double`/`float` use JavaScript's number formatting, so `1e10` prints `10000000000` instead of `1.0E10` and `-0.0`/`NaN`/`Infinity` are wrong. Needs Java's `Double.toString` rules in `str()`. _S_
+- [ ] `lang` **Java: library tail** — `Collections.shuffle`, `BigInteger`, `Scanner.useDelimiter`, enum constructors/fields, `String.formatted`/`indent`, `Stream.summarizingInt`. _M_
 - [ ] `platform` `aria-live` announcements for new console output. _S_
 - [ ] `platform` Visible focus rings across every control. _S_
 - [ ] `platform` Offline read-only mode (service worker) for the library. _L_
@@ -74,6 +75,8 @@ _Nothing known._
 ## Done
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
+
+- [x] `lang` **Java library parity** — a 66-program capability probe (String, StringBuilder, Arrays, Collections, List, Map/Set, streams, Optional, Comparator, Math, Integer, Character, Objects, plus language features) failed 35 times; it now passes 66/66. Fixed wrong answers as well as missing methods: `indexOf`/`lastIndexOf` ignored their from-index, `replaceAll` was a literal replace, `split` dropped Java's limit tail, `compareTo` returned a sign instead of the char difference, `Arrays.sort/fill` ignored range overloads, `List.remove(Object)` removed by index, `Comparator.naturalOrder()` sorted nothing, `String.valueOf(char[])` printed an object ref, and `double`-returning methods printed `9`. Added `subList`/`toArray`/`subList`, TreeMap/TreeSet navigation, `Optional.ofNullable/map/filter/or`, `Math.signum/hypot/atan2`, `Character.isWhitespace` and friends, `Objects.isNull`, enum-declared methods, and classes extending built-in exceptions. Parser: bitwise/shift operators, `~`, labelled loops, generic methods, `final` locals, `String[]::new`, `instanceof` with an interface. 15 of them are pinned in `npm run verify`. `ae56b97`
 
 - [x] `lang` **Standard input for Java** — `Scanner` now works through a shared `Stdin` buffer (`next`, `nextLine`, `nextInt`, `nextLong`, `nextDouble`, `nextBoolean`, `hasNext*`, `close`), a standard-input box in the Inputs panel, a preloaded “Console input” sample, and four new checks in `npm run verify`. `4b27af7`
 - [x] `ui` **Rooms step in the tour** — step 10 spotlights the Rooms button, falling back to the ☰ menu on phones and the sign-in button when signed out; targets are now chosen in priority order, not DOM order. `2d9d6e3`
