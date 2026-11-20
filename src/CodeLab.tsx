@@ -201,6 +201,39 @@ export function CodeLab({
     window.setTimeout(() => setCopiedOut(false), 1600);
   };
 
+  const downloadTrace = () => {
+    if (steps.length === 0) return;
+    const payload = {
+      language: lang,
+      code,
+      steps: steps.map((s) => ({
+        line: s.line,
+        kind: s.kind,
+        note: s.note,
+        stdout: s.stdout,
+      })),
+      stdout: trace.stdout,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `algo3d-trace-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const STEP_KIND_HINT: Record<string, string> = {
+    stmt: 'statement ran',
+    call: 'function called',
+    return: 'function returned',
+    write: 'a value changed',
+    error: 'runtime error',
+    end: 'program finished',
+  };
+
   const openQuickSave = () => {
     if (!user) {
       setSavesOpen(true);
@@ -952,11 +985,22 @@ export function CodeLab({
                   {copiedOut ? 'copied ✓' : 'copy'}
                 </button>
               ) : null}
+              {steps.length > 0 ? (
+                <button className="link-btn" onClick={downloadTrace} title="Download the full trace as JSON">
+                  download
+                </button>
+              ) : null}
             </div>
           </div>
           <pre className="console" ref={outputRef}>
             {step?.stdout ? step.stdout : 'System.out output appears here as it happens.'}
           </pre>
+          {step ? (
+            <p className="rail-hint" style={{ marginTop: 6, fontSize: 11 }}>
+              Step {safe + 1} of {total} · {STEP_KIND_HINT[step.kind] ?? step.kind}
+              {step.line ? ` · line ${step.line}` : ''}
+            </p>
+          ) : null}
         </div>
 
         <div className="panel">
