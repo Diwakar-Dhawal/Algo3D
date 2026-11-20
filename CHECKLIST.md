@@ -44,23 +44,27 @@ _(none open)_
 - [ ] `library` Copy a topic's program into the lab in one click. _S_
 - [ ] `library` Side-by-side algorithm comparison for one topic. _L_
 - [ ] `library` Explain a topic's complexity, not just tag it. _S_
-- [ ] `saves` **Bring device saves into the account on sign-in** — programs saved while signed out stay in the browser; there is no upload or merge step. _S_
-- [ ] `saves` **Folders** for saved programs — tags now cover the grouping that was asked for; folders would be a second axis. _M_
+- [ ] `saves` **Bring device saves into the account on sign-in, tags included** — programs saved while signed out stay in the browser; there is no upload or merge step. Since tags shipped (`851a7f0`) device saves carry them, so the merge has to carry `tags` across too, or signing in silently strips the labels someone just added. _S_
+- [ ] `saves` **Folders** for saved programs — tags cover the grouping that was asked for (`851a7f0`); folders would be a second axis. _M_
 - [ ] `saves` Version history and a diff between revisions. _L_
 - [ ] `saves` **Tags in the lab's quick-save popover** — `Ctrl/Cmd + S` saves the title, description and board only; tags are only reachable from the Saved codes drawer, so a program saved in a hurry has none until it is edited. _S_
+- [ ] `saves` **Rename or delete a tag everywhere** — tag edits are per program, so one typo ("arays") has to be fixed on every save that carries it. A library-level tag list would fix the name once. _S_
 - [ ] `rooms` **Realtime outside the local server** — the room socket lives in `scripts/ws-server.ts`, which Vercel's request-scoped functions cannot host, so a deployed tab falls back to polling at the old cadence. Pick either a node host for `api/` or a hosted realtime service and point `src/rooms/socket.ts` at it. _M_
 - [ ] `rooms` Cursor/selection presence. _M_
 - [ ] `rooms` In-room chat. _M_
+- [ ] `rooms` **Look at the room list with a real account** — the status tags, the filter counts and the row delete/leave shipped in `851a7f0` but have never been drawn in front of anyone: the drawer needs a signed-in session, and the preview browser has none. Until this is done the honest status of that feature is "compiles and the API answers", not "works". _S_
 - [ ] `board` Import a saved program as a text node. _S_
 - [ ] `lang` C++: `std::sort/min/max/swap`, then `pair`, `vector<string>`, `map`/`set`. _M_
 - [ ] `lang` **Java: numeric printing parity** — `double`/`float` use JavaScript's number formatting, so `1e10` prints `10000000000` instead of `1.0E10` and `-0.0`/`NaN`/`Infinity` are wrong. Needs Java's `Double.toString` rules in `str()`. _S_
 - [ ] `lang` **Java: library tail** — `Collections.shuffle`, `BigInteger`, `Scanner.useDelimiter`, enum constructors/fields, `String.formatted`/`indent`, `Stream.summarizingInt`. _M_
 - [ ] `platform` Offline read-only mode (service worker) for the library. _L_
+- [ ] `platform` **A signed-in smoke run without a human token** — `api:smoke` covers the signed half only with `CLERK_TEST_TOKEN` set by hand, which is exactly why a harness bug could hide there for months; minting a Clerk sign-in token inside the script would make the suite self-contained and CI-runnable. _S_
 
 - [ ] `ui` **Command palette (`Ctrl/Cmd + K`)** over modes, all 7 topics, samples, saved programs, theme and Run — promoted from P3 because seven topics plus nine samples is already past what a dropdown should hold, and the phone header is a menu. _M_
 - [ ] `ui` **Breadcrumb under the mode tabs** (`Library › Sorting › Bubble sort`) — phones show one pane at a time, so the highlighted tab is the only cue to where you are. _S_
 - [ ] `ui` **Keep each pane's state when switching** — scroll position, 3D camera and inspector tab survive a Code/Visual/Panels round trip. _S_
 - [ ] `ui` **“Continue where you left off” card** — surface the existing `algo3d.lab.v2` autosave instead of asking people to remember. _S_
+- [ ] `ui` **Tag rows stay compact** — the saves filter row and the preset picker wrap into a tall block past about a dozen tags (the presets alone are twelve); cap the visible chips behind a "more" control or scroll them. _S_
 - [ ] `runtime` **“Predict the next step” practice mode** — show the array at step N, ask what changes or what prints, then reveal. The one retention loop VisuAlgo and Python Tutor do not have. _L_
 - [ ] `platform` **Instrument the basic funnel** (open → sample picked → Run → step 10 → signed in); there is no measurement today, so “where people leave” is a guess. _S_
 - [ ] `platform` **Embed a topic at a step** (`<iframe>`) — how a teacher adopts a tool and brings a class. _M_
