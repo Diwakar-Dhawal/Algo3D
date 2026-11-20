@@ -16,7 +16,7 @@ const GROUPS: Group[] = [
       ['← / →', 'Previous or next step'],
       ['Home / End', 'First or last step'],
       ['B', 'Breakpoint on the current line'],
-      ['⏭', 'Run to the next breakpoint'],
+      ['Shift + →', 'Run to the next breakpoint'],
     ],
   },
   {

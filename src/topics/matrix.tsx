@@ -2,6 +2,8 @@ import type { ControlsProps, Mark, Program, Selected, Step, TopicModule } from '
 import { fitScale, lineOf, parseGrid } from './util';
 import { Label } from '../three/Label';
 import { AnimatedStage, useStableIds, type EdgeSpec, type TileSpec } from '../three/anim';
+import { useStageTheme } from '../theme/store';
+import { stageColors } from '../three/theme';
 
 type Mode = 'spiral' | 'transpose';
 type Params = { raw: string; mode: Mode };
@@ -137,6 +139,8 @@ function build(p: Params): Program<GridState> {
 type ViewProps = { state: GridState; onInspect: (s: Selected) => void; animMs?: number };
 
 function View({ state, onInspect, animMs }: ViewProps) {
+  const theme = useStageTheme();
+  const plate = stageColors(theme).plate;
   const rows = state.grid.length;
   const cols = state.grid[0]?.length ?? 1;
   const gap = 1.45;
@@ -188,7 +192,7 @@ function View({ state, onInspect, animMs }: ViewProps) {
       <group position={[0, 0, -0.3]}>
         <mesh>
           <planeGeometry args={[(cols + 1) * gap, (rows + 1) * gap]} />
-          <meshBasicMaterial color="#0b1524" transparent opacity={0.55} />
+          <meshBasicMaterial color={plate} transparent opacity={0.7} />
         </mesh>
       </group>
     </group>

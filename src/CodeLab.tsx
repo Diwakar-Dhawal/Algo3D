@@ -474,6 +474,9 @@ export function CodeLab({
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlay();
+      } else if (e.shiftKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        runToBreakpoint();
       } else if (e.key === 'ArrowRight') {
         syncStep(safe + 1);
       } else if (e.key === 'ArrowLeft') {

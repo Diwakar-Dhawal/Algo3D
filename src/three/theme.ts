@@ -9,6 +9,8 @@ export const STAGE = {
     gridSection: '#ddd0b6',
     sky: '#ffffff',
     ground: '#e6dcc8',
+    /* a slightly deeper paper, for plates drawn behind a group of blocks */
+    plate: '#ebe1cb',
     shadow: '#8a7a5c',
     shadowOpacity: 0.22,
     ambient: 0.95,
@@ -21,6 +23,7 @@ export const STAGE = {
     gridSection: '#3b3327',
     sky: '#fff6e6',
     ground: '#3a3025',
+    plate: '#221d16',
     shadow: '#000000',
     shadowOpacity: 0.36,
     ambient: 0.72,

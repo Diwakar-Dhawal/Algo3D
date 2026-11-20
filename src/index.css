@@ -197,6 +197,7 @@ button {
   display: flex;
   gap: 2px;
   padding: 3px;
+  margin-left: auto;
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   background: var(--card-2);
@@ -238,7 +239,6 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
 }
 
 .top-desktop {
@@ -1219,6 +1219,11 @@ button {
 
 .lib-toolbar .ctrl .row,
 .lib-toolbar .ctrl .seg {
+  flex: 0 0 auto;
+}
+
+/* action buttons keep their own width instead of stretching across the bar */
+.lib-toolbar .ctrl .btn {
   flex: 0 0 auto;
 }
 
@@ -3355,8 +3360,9 @@ button {
   padding: 20px 22px 18px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: var(--bg, #12100e);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 24px 60px rgba(33, 28, 21, 0.28);
 }
 
 .shortcut-group {
@@ -3400,7 +3406,8 @@ button {
   font-family: inherit;
   font-size: 11.5px;
   letter-spacing: 0.02em;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--card-2);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -3485,6 +3492,7 @@ button {
     order: 4;
     flex: 1 1 100%;
     margin: 2px 0 0;
+    justify-content: space-between;
   }
 
   .mode {
