@@ -29,7 +29,9 @@ const GROUPS: Group[] = [
   },
 ];
 
-export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+type SheetProps = { open: boolean; onClose: () => void; onTour?: () => void };
+
+export function ShortcutSheet({ open, onClose, onTour }: SheetProps) {
   if (!open) return null;
   return (
     <div className="shortcuts-scrim" onClick={onClose} role="presentation">
@@ -62,6 +64,14 @@ export function ShortcutSheet({ open, onClose }: { open: boolean; onClose: () =>
 
         <p className="shortcut-foot">
           Run and save work from inside the editor too; the rest apply anywhere on the lab.
+          {onTour ? (
+            <>
+              {' '}
+              <button className="link-btn" onClick={onTour}>
+                Replay the tour
+              </button>
+            </>
+          ) : null}
         </p>
       </div>
     </div>

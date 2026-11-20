@@ -624,7 +624,7 @@ export function CodeLab({
         ))}
       </div>
 
-      <section className={`editor-panel ${leftHidden ? 'is-collapsed' : ''}`}>
+      <section className={`editor-panel ${leftHidden ? 'is-collapsed' : ''}`} data-tour="editor">
         {leftHidden ? (
           <button className="panel-stub" onClick={toggleLeft} title="Show source">
             <span>›</span>
@@ -668,6 +668,7 @@ export function CodeLab({
             <div className="head-tools">
               <button
                 className="ghost-action"
+                data-tour="saves"
                 onClick={() => setSavesOpen(true)}
                 title={user ? 'Open your saved codes and favourites' : 'Sign in to save codes'}
               >
@@ -695,7 +696,7 @@ export function CodeLab({
         />
 
         <div className="panel-foot">
-          <button className="btn-gold" onClick={() => run(code)}>
+          <button className="btn-gold" data-tour="run" onClick={() => run(code)}>
             Run ▸
           </button>
 
@@ -863,7 +864,7 @@ export function CodeLab({
         </div>
         </PaneBoundary>
 
-        <div className="playbar">
+        <div className="playbar" data-tour="playback">
           <button className="icon-btn" title="Restart" disabled={!mayDrive} onClick={() => syncStep(0)}>
             ↺
           </button>
@@ -919,7 +920,7 @@ export function CodeLab({
         </div>
       </section>
 
-      <aside className={`rail ${rightHidden ? 'is-collapsed' : ''}`}>
+      <aside className={`rail ${rightHidden ? 'is-collapsed' : ''}`} data-tour="inspector">
         {rightHidden ? (
           <button className="panel-stub" onClick={toggleRight} title="Show inspector">
             <span>‹</span>

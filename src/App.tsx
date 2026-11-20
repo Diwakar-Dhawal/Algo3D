@@ -8,6 +8,7 @@ import { RoomsDrawer } from './rooms/RoomsDrawer';
 import { ThemeProvider, ThemeToggle, useTheme } from './theme/ThemeContext';
 import { PaneBoundary } from './components/PaneBoundary';
 import { ShortcutSheet } from './components/Shortcuts';
+import { Tour, tourSeen } from './components/Tour';
 
 /** the library and the whiteboard (with excalidraw) only load when you open them */
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })));
@@ -80,10 +81,20 @@ function Shell() {
   const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // greets a first-time visitor once; afterwards only from the shortcut sheet
+  const [tourOpen, setTourOpen] = useState(() => !tourSeen());
+  const [tourReturn, setTourReturn] = useState<Mode>(mode);
   const { active } = useRooms();
   const { user } = useAuth();
   const { theme, toggle: toggleTheme } = useTheme();
   const roomId = active?.room.id ?? null;
+
+  const openTour = () => {
+    setTourReturn(mode);
+    setShortcutsOpen(false);
+    setMenuOpen(false);
+    setTourOpen(true);
+  };
 
   // Esc closes the phone menu before anything else grabs it
   useEffect(() => {
@@ -120,7 +131,7 @@ function Shell() {
           </div>
         </div>
 
-        <nav className="modes" aria-label="Sections">
+        <nav className="modes" aria-label="Sections" data-tour="modes">
           <button className={`mode ${mode === 'code' ? 'on' : ''}`} onClick={() => setMode('code')}>
             <span className="mode-full">Your code</span>
             <span className="mode-short">Code</span>
@@ -141,6 +152,7 @@ function Shell() {
             <ThemeToggle />
             <button
               className="icon-btn help-btn"
+              data-tour="help"
               title="Keyboard shortcuts (?)"
               aria-label="Keyboard shortcuts"
               onClick={() => setShortcutsOpen(true)}
@@ -221,7 +233,10 @@ function Shell() {
       </PaneBoundary>
 
       <RoomsDrawer open={roomsOpen} onClose={() => setRoomsOpen(false)} initialCode={inviteCode} />
-      <ShortcutSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <ShortcutSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} onTour={openTour} />
+      {tourOpen ? (
+        <Tour onClose={() => setTourOpen(false)} onMode={setMode} returnMode={tourReturn} />
+      ) : null}
     </div>
   );
 }

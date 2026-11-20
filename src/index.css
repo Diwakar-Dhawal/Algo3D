@@ -3550,3 +3550,76 @@ button {
     display: inline;
   }
 }
+
+/* ---------------- first-run tour ---------------- */
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 15, 11, 0.62);
+}
+
+/* the dimming comes from the spotlight's own shadow, so the target stays lit */
+.tour-spot {
+  position: absolute;
+  border-radius: 12px;
+  border: 1px solid rgba(176, 141, 87, 0.85);
+  box-shadow: 0 0 0 9999px rgba(18, 15, 11, 0.62);
+  pointer-events: none;
+  transition: left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.tour-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 22px 54px rgba(20, 16, 11, 0.34);
+}
+
+.tour-card h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.tour-card p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.tour-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tour-nav .btn {
+  flex: 0 0 auto;
+}
+
+.tour-nav .btn-gold {
+  padding: 7px 14px;
+}

@@ -99,7 +99,7 @@ export function Whiteboard() {
   const status: string = roomId ? (canDraw ? board.status : 'view only') : 'saved in this browser';
 
   return (
-    <section className="board">
+    <section className="board" data-tour="board">
       <div className="board-bar">
         <span className="eyebrow">Whiteboard</span>
         <span className="board-scope">

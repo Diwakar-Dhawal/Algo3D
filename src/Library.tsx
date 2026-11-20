@@ -111,7 +111,7 @@ export function Library() {
         ))}
       </nav>
 
-      <div className="lib-toolbar">
+      <div className="lib-toolbar" data-tour="library">
         <div className="lib-toolbar-head">
           <h2 className="lib-toolbar-title">{topic.label}</h2>
           <span className="tag">{topic.tag}</span>
