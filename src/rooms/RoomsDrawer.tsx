@@ -319,6 +319,7 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
                         <button className="room-open" onClick={() => void rooms.openRoom(entry.id)}>
                           <b>{entry.name}</b>
                           <span>
+                            {entry.closed ? 'closed · ' : ''}
                             {roleLabel(entry.role)} · {entry.online} online · {entry.members} member
                             {entry.members === 1 ? '' : 's'} · owner {entry.ownerName ?? 'unknown'}
                           </span>

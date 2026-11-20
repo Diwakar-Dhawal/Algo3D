@@ -5,6 +5,7 @@
  *   npm run dev:api
  */
 import { createServer } from 'node:http';
+import { attachWebSocket } from './ws-server';
 import config from '../api/config';
 import me from '../api/auth/me';
 import saves from '../api/saves/index';
@@ -15,6 +16,7 @@ import roomJoin from '../api/rooms/join';
 import roomItem from '../api/rooms/[id]';
 import roomState from '../api/rooms/[id]/state';
 import roomBoard from '../api/rooms/[id]/board';
+import { SWEEP_EVERY_MS, closeIdleRooms } from '../api/rooms/_util';
 
 const PORT = Number(process.env.API_PORT ?? 3000);
 
@@ -64,8 +66,20 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// room updates are pushed over this socket; the browser falls back to polling
+// wherever the upgrade cannot answer (a serverless deployment, for one)
+attachWebSocket(server);
+
+/** close rooms nobody has touched, so a tab left open stops polling */
+const sweep = () => {
+  void closeIdleRooms().catch(() => undefined);
+};
+sweep();
+setInterval(sweep, SWEEP_EVERY_MS).unref();
+
 server.listen(PORT, () => {
   console.log(`api listening on http://localhost:${PORT}`);
+  console.log(`ws listening on ws://localhost:${PORT}/api/ws`);
   if (!process.env.CLERK_SECRET_KEY) console.warn('CLERK_SECRET_KEY is not set — every authenticated call will fail');
   if (!process.env.DATABASE_URL) console.warn('DATABASE_URL is not set — database calls will fail');
 });

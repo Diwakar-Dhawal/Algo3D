@@ -1,5 +1,9 @@
 import { apiRequest } from '../auth/api';
-import type { RoomBoard, RoomSnapshot, RoomState, RoomSummary, StatePatch } from './types';
+import type { RoomBoard, RoomPoll, RoomSnapshot, RoomState, RoomSummary, StatePatch } from './types';
+
+/** a poll answers either the room or "it closed" — this narrows the two */
+export const isRoomSnapshot = (value: RoomPoll | null): value is RoomSnapshot =>
+  Boolean(value && 'room' in value);
 
 type PatchBody = {
   name?: string;
@@ -14,7 +18,7 @@ export const roomsApi = {
     apiRequest<RoomSnapshot>('/api/rooms', { method: 'POST', body }),
   join: (code: string) => apiRequest<{ roomId: number; role: string }>('/api/rooms/join', { method: 'POST', body: { code } }),
   get: (id: number, since?: number) =>
-    apiRequest<RoomSnapshot>(`/api/rooms/${id}${since ? `?since=${since}` : ''}`),
+    apiRequest<RoomPoll>(`/api/rooms/${id}${since ? `?since=${since}` : ''}`),
   patch: (id: number, body: PatchBody) =>
     apiRequest<RoomSnapshot & { left?: boolean }>(`/api/rooms/${id}`, { method: 'PATCH', body }),
   remove: (id: number) => apiRequest<{ ok: boolean }>(`/api/rooms/${id}`, { method: 'DELETE' }),

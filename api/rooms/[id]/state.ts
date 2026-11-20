@@ -10,6 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { db, json, readBody, requireUser } from '../../_lib.js';
+import { emitRoom } from '../../_events.js';
 import { can } from '../_roles.js';
 import {
   DRIVER_LEASE_MS,
@@ -17,6 +18,7 @@ import {
   MAX_STATE_BYTES,
   loadMembership,
   loadStateRow,
+  markActivity,
   roomIdFrom,
   stateShape,
   touchPresence,
@@ -130,7 +132,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   if (hasSource) {
     await db().query('update rooms set updated_at = now() where id = $1', [roomId]);
   }
+  // editing the code or moving the trace is what keeps a room out of the idle sweep
+  await markActivity(roomId);
   await touchPresence(roomId, user.id);
 
-  json(res, 200, { state: stateShape(rows[0]) });
+  const state = stateShape(rows[0]);
+  // the other tabs apply this directly instead of on their next poll
+  emitRoom(roomId, { type: 'state', state });
+  json(res, 200, { state });
 }

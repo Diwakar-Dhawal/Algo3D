@@ -42,6 +42,11 @@ export function setTokenGetter(fn: (() => Promise<string | null>) | null): void 
   tokenGetter = fn;
 }
 
+/** the current session token, for callers that cannot use apiRequest (the room socket) */
+export async function sessionToken(): Promise<string | null> {
+  return tokenGetter ? tokenGetter() : null;
+}
+
 export type ApiResult<T> = { status: number; ok: boolean; data: T | null };
 
 /** like call(), but keeps the status and error body so callers can react to a 409 */

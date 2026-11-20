@@ -10,8 +10,9 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { db, json, readBody, requireUser } from '../../_lib.js';
+import { emitRoom } from '../../_events.js';
 import { can } from '../_roles.js';
-import { loadMembership, roomIdFrom, touchPresence } from '../_util.js';
+import { loadMembership, markActivity, roomIdFrom, touchPresence } from '../_util.js';
 
 /** enough for a dense algorithm sketch, far short of a memory problem */
 const MAX_ELEMENTS = 1500;
@@ -163,6 +164,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  await markActivity(roomId);
   await touchPresence(roomId, user.id);
-  json(res, 200, { board: boardShape(rows[0]) });
+  const board = boardShape(rows[0]);
+  // the other tabs read the new version now instead of on their next poll
+  emitRoom(roomId, { type: 'board', version: board.version });
+  json(res, 200, { board });
 }

@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { roomsApi } from '../rooms/api';
+import { onRoomEvent } from '../rooms/socket';
 import { mergeElements, boardSignature, type BoardElement } from './elements';
 
 export type BoardStatus = 'loading' | 'live' | 'saving' | 'offline';
@@ -49,6 +50,8 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
   const retriesRef = useRef(0);
   const savingRef = useRef(false);
   const againRef = useRef(false);
+  /** reads the board right away when the socket says it changed */
+  const nudgeRef = useRef<() => void>(() => {});
 
   /**
    * Publish a scene and the version it was read at, together. Identical content
@@ -99,12 +102,27 @@ export function useRoomBoard(roomId: number | null, canDraw: boolean) {
       timer = window.setTimeout(tick, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
     };
 
+    // the socket says when a stroke landed; reading now rather than on the next
+    // poll is what makes the other tab's drawing appear as it happens
+    nudgeRef.current = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(tick, 30);
+    };
+
     void tick();
     return () => {
       live = false;
+      nudgeRef.current = () => {};
       if (timer) window.clearTimeout(timer);
     };
   }, [roomId, publish]);
+
+  useEffect(() => {
+    if (!roomId) return;
+    return onRoomEvent((event) => {
+      if (event.type === 'board') nudgeRef.current();
+    });
+  }, [roomId]);
 
   const flush = useCallback(async () => {
     if (!roomId || !canDraw) return;

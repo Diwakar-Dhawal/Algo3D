@@ -75,6 +75,13 @@ update rooms set editor_code = 'R' || lpad(id::text, 7, '0') where editor_code i
 alter table rooms alter column editor_code set not null;
 create unique index if not exists rooms_editor_code_idx on rooms (editor_code);
 
+-- A room closes itself after a stretch with no edit, drawing or step move, so a
+-- tab left open in it stops polling and the room stops costing requests. No
+-- data is removed: opening the room again clears `closed_at`.
+alter table rooms add column if not exists last_active_at timestamptz not null default now();
+alter table rooms add column if not exists closed_at timestamptz;
+create index if not exists rooms_idle_idx on rooms (last_active_at) where closed_at is null;
+
 create table if not exists room_members (
   room_id      bigint      not null references rooms(id) on delete cascade,
   user_id      bigint      not null references users(id) on delete cascade,

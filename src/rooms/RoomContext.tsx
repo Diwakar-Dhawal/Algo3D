@@ -1,14 +1,15 @@
 /**
  * Room session: who is in the room, what role they hold, and the shared
- * program. State travels over the same HTTPS API as everything else — the
- * client polls while a room is open, so there is no extra service to run or
- * keep awake. Swapping this layer for a WebSocket provider later only changes
- * this file.
+ * program. Changes are pushed over the room socket (`./socket`) and the poll
+ * stays as the fallback — at 5 s while the socket is live, under a second when
+ * it is not — so nothing depends on a socket being available. The poll is also
+ * the presence heartbeat.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth/AuthContext';
-import { roomsApi } from './api';
+import { isRoomSnapshot, roomsApi } from './api';
+import { onRoomEvent, openRoomSocket } from './socket';
 import { can as roleCan } from './roles';
 import type { RoomCapability, RoomRole } from './roles';
 import type { Room, RoomMember, RoomSnapshot, RoomState, RoomSummary, StatePatch } from './types';
@@ -44,6 +45,11 @@ const RoomsContext = createContext<RoomsValue | null>(null);
 /** how often the open room is polled, in ms: a joiner sees a keystroke this soon */
 const POLL_MS = 900;
 const POLL_HIDDEN_MS = 6000;
+/** the socket pushes changes, so the poll is only a safety net and a heartbeat */
+const POLL_LIVE_MS = 5000;
+/** a closed room says so on the next poll; this is the same message for the socket */
+const CLOSED_NOTICE =
+  'That room closed after 20 minutes with no changes. Open it again from Rooms to pick up where you left off.';
 /** how many times a conflicting push is re-sent on the newer version */
 const MAX_REBASE = 2;
 
@@ -56,9 +62,12 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActiveRoom | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [connected, setConnected] = useState(true);
+  const [socketLive, setSocketLive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const versionRef = useRef(0);
+  /** wakes the poll immediately, for events the socket only says "something changed" about */
+  const nudgeRef = useRef<() => void>(() => {});
   const rebaseRef = useRef(0);
   const queueRef = useRef<StatePatch>({});
   const timerRef = useRef<number | undefined>(undefined);
@@ -100,11 +109,22 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
     let live = true;
     let timer: number | undefined;
 
+    const schedule = () => {
+      timer = window.setTimeout(tick, document.hidden ? POLL_HIDDEN_MS : socketLive ? POLL_LIVE_MS : POLL_MS);
+    };
+
     const tick = async () => {
       const result = await roomsApi.get(activeId, versionRef.current || undefined);
       if (!live) return;
       if (result.ok && result.data) {
         setConnected(true);
+        if (!isRoomSnapshot(result.data)) {
+          // the room went idle and closed itself: stop polling, keep the data server-side
+          setActive(null);
+          setActiveId(null);
+          setNotice(CLOSED_NOTICE);
+          return;
+        }
         applySnapshot(result.data);
       } else if (result.status === 404 || result.status === 403) {
         setActive(null);
@@ -114,15 +134,57 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       } else {
         setConnected(false);
       }
-      timer = window.setTimeout(tick, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
+      schedule();
+    };
+
+    nudgeRef.current = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(tick, 40);
     };
 
     void tick();
     return () => {
       live = false;
+      nudgeRef.current = () => {};
       if (timer) window.clearTimeout(timer);
     };
-  }, [activeId, userId, applySnapshot]);
+  }, [activeId, userId, applySnapshot, socketLive]);
+
+  // the socket for this room: pushed changes land here, polling stays the fallback
+  useEffect(() => {
+    if (!activeId || !userId) {
+      setSocketLive(false);
+      return;
+    }
+    return openRoomSocket(activeId, setSocketLive);
+  }, [activeId, userId]);
+
+  // a pushed change updates the room at once; anything the socket only flags is
+  // read by waking the poll, so both paths share one code path for footprint
+  useEffect(() => {
+    if (!activeId || !userId) return;
+    return onRoomEvent((event) => {
+      if (event.type === 'state') {
+        const state = event.state;
+        // a push in flight already carries a newer version; its response wins
+        if (flushingRef.current || state.version <= versionRef.current) return;
+        versionRef.current = state.version;
+        setActive((prev) => (prev ? { ...prev, state } : prev));
+        return;
+      }
+      if (event.type === 'closed') {
+        setActive(null);
+        setActiveId(null);
+        setNotice(CLOSED_NOTICE);
+        return;
+      }
+      if (event.type === 'notice') {
+        setNotice(event.text);
+        return;
+      }
+      if (event.type === 'members' || event.type === 'room') nudgeRef.current();
+    });
+  }, [activeId, userId]);
 
   const flush = useCallback(async () => {
     const roomId = activeId;
@@ -200,12 +262,13 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       rebaseRef.current = 0;
       queueRef.current = {};
       const result = await roomsApi.get(id);
-      if (!result.ok || !result.data) {
-        setNotice(result.data === null ? 'Could not open that room.' : 'Could not open that room.');
+      const data = result.data;
+      if (!result.ok || !data || !isRoomSnapshot(data)) {
+        setNotice('Could not open that room.');
         return false;
       }
       setActiveId(id);
-      applySnapshot(result.data);
+      applySnapshot(data);
       setConnected(true);
       setNotice(null);
       return true;

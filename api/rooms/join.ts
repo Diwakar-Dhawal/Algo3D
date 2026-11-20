@@ -7,7 +7,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { db, json, readBody, requireUser } from '../_lib.js';
-import { MAX_MEMBERS } from './_util.js';
+import { emitRoom } from '../_events.js';
+import { MAX_MEMBERS, markActivity } from './_util.js';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -65,6 +66,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       user.id,
     ]);
   }
+
+  // joining is activity: it reopens a room that had gone idle
+  await markActivity(roomId);
+  emitRoom(roomId, { type: 'members' });
 
   json(res, 200, { roomId, role: existing[0]?.role ?? joinRole });
 }

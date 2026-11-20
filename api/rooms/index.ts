@@ -7,15 +7,25 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { db, json, readBody, requireUser } from '../_lib.js';
-import { LANGUAGES, MAX_OWNED_ROOMS, memberShape, newInviteCode, roomShape, stateShape } from './_util.js';
+import {
+  LANGUAGES,
+  MAX_OWNED_ROOMS,
+  memberShape,
+  newInviteCode,
+  roomShape,
+  stateShape,
+  sweepIdleRooms,
+} from './_util.js';
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const user = await requireUser(req, res);
   if (!user) return;
 
   if (req.method === 'GET' || req.method === 'HEAD') {
+    // closing idle rooms rides along with the list instead of needing a cron job
+    await sweepIdleRooms();
     const rows = (await db().query(
-      `select r.id, r.name, r.owner_id, r.updated_at, m.role,
+      `select r.id, r.name, r.owner_id, r.updated_at, r.closed_at, m.role,
               coalesce(u.name, u.email) as owner_name,
               (select count(*)::int from room_members mm where mm.room_id = r.id) as members,
               (select count(*)::int from room_members mm
@@ -31,6 +41,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       name: string;
       owner_id: string;
       updated_at: string;
+      closed_at: string | null;
       role: string;
       owner_name: string | null;
       members: number;
@@ -46,6 +57,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ownerName: row.owner_name,
         members: Number(row.members) || 0,
         online: Number(row.online) || 0,
+        closed: Boolean(row.closed_at),
         updatedAt: new Date(row.updated_at).toISOString(),
       })),
     });
@@ -70,7 +82,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const rows = (await db().query(
       `insert into rooms (owner_id, name, invite_code, editor_code)
             values ($1, $2, $3, $4)
-         returning id, owner_id, name, invite_code, editor_code, settings, created_at, updated_at`,
+         returning id, owner_id, name, invite_code, editor_code, settings, created_at, updated_at,
+                   last_active_at, closed_at`,
       [user.id, name, newInviteCode(), newInviteCode()]
     )) as Parameters<typeof roomShape>[0][];
     const room = rows[0];

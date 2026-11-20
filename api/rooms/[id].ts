@@ -7,6 +7,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { db, json, readBody, requireUser } from '../_lib.js';
+import { emitRoom } from '../_events.js';
 import { ASSIGNABLE_ROLES, can, isRoomRole } from './_roles.js';
 import type { RoomRole } from './_roles.js';
 import {
@@ -18,6 +19,7 @@ import {
   roomIdFrom,
   roomShape,
   stateShape,
+  sweepIdleRooms,
   touchPresence,
 } from './_util.js';
 
@@ -54,11 +56,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // the poll doubles as the presence heartbeat
     await touchPresence(roomId, user.id);
+    void sweepIdleRooms();
     const row = await loadRoomRow(roomId);
     if (!row) {
       json(res, 404, { error: 'room not found' });
       return;
     }
+
+    // a room that sat idle was closed: a poll learns it, an open (a request with
+    // no `since`) is someone coming back, and that reopens it with no data lost
+    if (since > 0) {
+      if (row.closed_at) {
+        json(res, 200, { closed: true, serverTime: Date.now() });
+        return;
+      }
+    } else if (row.closed_at) {
+      await db().query('update rooms set closed_at = null, last_active_at = now() where id = $1', [roomId]);
+      row.closed_at = null;
+    }
+
     const [members, state] = await Promise.all([loadMembers(roomId), loadStateRow(roomId)]);
     const unchanged = since > 0 && state && Number(state.version) <= since;
 
@@ -167,6 +183,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       json(res, 400, { error: 'nothing to update' });
       return;
     }
+
+    // everyone in the room refreshes its member list, instead of waiting a poll
+    emitRoom(roomId, { type: 'members' });
 
     // leaving drops the caller's membership, so there is no role left to snapshot
     if (removeTarget === user.id) {

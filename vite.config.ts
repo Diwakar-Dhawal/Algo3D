@@ -20,6 +20,8 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
+        // the room socket upgrades through this same prefix
+        ws: true,
         // src/rooms/roles.ts re-exports api/rooms/_roles.ts, which Vite serves
         // as /api/rooms/_roles.ts. That is a source module, not an API call, so
         // let Vite answer it instead of forwarding it to the function server.
