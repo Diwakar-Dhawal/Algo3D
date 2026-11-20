@@ -4,6 +4,7 @@
  * Every query is scoped to the signed-in user.
  */
 import { db, json, readBody, requireUser } from '../_lib.js';
+import { parseTags } from './_tags.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 type Row = {
@@ -15,6 +16,7 @@ type Row = {
   description: string;
   favorite: boolean;
   board: unknown;
+  tags: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -28,6 +30,7 @@ const shape = (row: Row) => ({
   description: row.description,
   favorite: row.favorite,
   board: Array.isArray(row.board) ? row.board : null,
+  tags: Array.isArray(row.tags) ? row.tags : [],
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -50,6 +53,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       inputs?: unknown;
       description?: unknown;
       favorite?: unknown;
+      tags?: unknown;
     }>(req);
 
     const title = typeof body.title === 'string' ? body.title.trim().slice(0, 120) || 'Untitled program' : null;
@@ -57,8 +61,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const inputs = typeof body.inputs === 'string' ? body.inputs.slice(0, 20_000) : null;
     const description = typeof body.description === 'string' ? body.description.trim().slice(0, 2000) : null;
     const favorite = typeof body.favorite === 'boolean' ? body.favorite : null;
+    // an absent list means "leave the tags alone"; an empty one clears them
+    const tags = Array.isArray(body.tags) ? parseTags(body.tags) : null;
 
-    if (title === null && code === null && inputs === null && description === null && favorite === null) {
+    if (title === null && code === null && inputs === null && description === null && favorite === null && tags === null) {
       json(res, 400, { error: 'nothing to update' });
       return;
     }
@@ -70,10 +76,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
               inputs      = coalesce($3, inputs),
               description = coalesce($4, description),
               favorite    = coalesce($5, favorite),
+              tags        = coalesce($6::text[], tags),
               updated_at  = now()
-        where id = $6 and user_id = $7
-        returning id, title, language, code, inputs, description, favorite, board, created_at, updated_at`,
-      [title, code, inputs, description, favorite, id, user.id]
+        where id = $7 and user_id = $8
+        returning id, title, language, code, inputs, description, favorite, board, tags, created_at, updated_at`,
+      [title, code, inputs, description, favorite, tags, id, user.id]
     )) as Row[];
 
     if (!rows.length) {

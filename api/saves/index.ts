@@ -3,6 +3,7 @@
  * POST /api/saves  → save the current program
  */
 import { db, json, readBody, requireUser } from '../_lib.js';
+import { parseTags } from './_tags.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const LANGUAGES = new Set(['java', 'python', 'javascript', 'cpp']);
@@ -20,6 +21,7 @@ type Row = {
   description: string;
   favorite: boolean;
   board: unknown;
+  tags: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -33,6 +35,7 @@ const shape = (row: Row) => ({
   description: row.description,
   favorite: row.favorite,
   board: Array.isArray(row.board) ? row.board : null,
+  tags: Array.isArray(row.tags) ? row.tags : [],
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString(),
 });
@@ -43,7 +46,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   if (req.method === 'GET' || req.method === 'HEAD') {
     const rows = (await db().query(
-      `select id, title, language, code, inputs, description, favorite, board, created_at, updated_at
+      `select id, title, language, code, inputs, description, favorite, board, tags, created_at, updated_at
          from saves where user_id = $1
         order by favorite desc, updated_at desc
         limit ${MAX_SAVES}`,
@@ -62,6 +65,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       description?: unknown;
       favorite?: unknown;
       board?: unknown;
+      tags?: unknown;
     }>(req);
     const title = String(body.title ?? '').trim().slice(0, 120) || 'Untitled program';
     const language = String(body.language ?? 'java');
@@ -69,6 +73,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const inputs = String(body.inputs ?? '').slice(0, 20_000);
     const description = String(body.description ?? '').trim().slice(0, 2000);
     const favorite = body.favorite === true;
+    const tags = parseTags(body.tags);
 
     // the checkbox in the save dialog decides this: absent means "code only"
     let board: string | null = null;
@@ -104,10 +109,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     }
 
     const rows = (await db().query(
-      `insert into saves (user_id, title, language, code, inputs, description, favorite, board)
-            values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-         returning id, title, language, code, inputs, description, favorite, board, created_at, updated_at`,
-      [user.id, title, language, code, inputs, description, favorite, board]
+      `insert into saves (user_id, title, language, code, inputs, description, favorite, board, tags)
+            values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::text[])
+         returning id, title, language, code, inputs, description, favorite, board, tags, created_at, updated_at`,
+      [user.id, title, language, code, inputs, description, favorite, board, tags]
     )) as Row[];
     await db().query(
       `insert into activity (user_id, day, kind, count) values ($1, current_date, 'save', 1)

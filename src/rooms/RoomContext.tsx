@@ -37,6 +37,10 @@ type RoomsValue = {
   removeMember: (userId: number) => Promise<void>;
   leaveRoom: () => Promise<void>;
   deleteRoom: () => Promise<void>;
+  /** delete one room by id, from the list, without opening it first */
+  deleteRoomById: (id: number) => Promise<boolean>;
+  /** leave one room by id; a member cannot delete what they do not own */
+  leaveRoomById: (id: number) => Promise<boolean>;
   inviteUrl: (kind: 'viewer' | 'editor') => string;
 };
 
@@ -379,6 +383,39 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
     }
   }, [activeId, refreshList]);
 
+  /** shared by the list actions: drop the room locally when it was the open one */
+  const forgetRoom = useCallback(
+    (id: number) => {
+      if (activeId !== id) return;
+      setActiveId(null);
+      setActive(null);
+      versionRef.current = 0;
+    },
+    [activeId]
+  );
+
+  const deleteRoomById = useCallback(
+    async (id: number) => {
+      const result = await roomsApi.remove(id);
+      if (!result.ok) return false;
+      forgetRoom(id);
+      void refreshList();
+      return true;
+    },
+    [forgetRoom, refreshList]
+  );
+
+  const leaveRoomById = useCallback(
+    async (id: number) => {
+      const result = await roomsApi.patch(id, { leave: true });
+      if (!result.ok) return false;
+      forgetRoom(id);
+      void refreshList();
+      return true;
+    },
+    [forgetRoom, refreshList]
+  );
+
   const role = active?.room.role ?? null;
   const canCap = useCallback((cap: RoomCapability) => roleCan(role, cap), [role]);
 
@@ -416,6 +453,8 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       removeMember,
       leaveRoom,
       deleteRoom,
+      deleteRoomById,
+      leaveRoomById,
       inviteUrl,
     }),
     [
@@ -438,6 +477,8 @@ export function RoomsProvider({ children }: { children: ReactNode }) {
       removeMember,
       leaveRoom,
       deleteRoom,
+      deleteRoomById,
+      leaveRoomById,
       inviteUrl,
     ]
   );

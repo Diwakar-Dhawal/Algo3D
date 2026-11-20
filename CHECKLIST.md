@@ -45,8 +45,9 @@ _(none open)_
 - [ ] `library` Side-by-side algorithm comparison for one topic. _L_
 - [ ] `library` Explain a topic's complexity, not just tag it. _S_
 - [ ] `saves` **Bring device saves into the account on sign-in** — programs saved while signed out stay in the browser; there is no upload or merge step. _S_
-- [ ] `saves` Folders or tags for saved programs. _M_
+- [ ] `saves` **Folders** for saved programs — tags now cover the grouping that was asked for; folders would be a second axis. _M_
 - [ ] `saves` Version history and a diff between revisions. _L_
+- [ ] `saves` **Tags in the lab's quick-save popover** — `Ctrl/Cmd + S` saves the title, description and board only; tags are only reachable from the Saved codes drawer, so a program saved in a hurry has none until it is edited. _S_
 - [ ] `rooms` **Realtime outside the local server** — the room socket lives in `scripts/ws-server.ts`, which Vercel's request-scoped functions cannot host, so a deployed tab falls back to polling at the old cadence. Pick either a node host for `api/` or a hosted realtime service and point `src/rooms/socket.ts` at it. _M_
 - [ ] `rooms` Cursor/selection presence. _M_
 - [ ] `rooms` In-room chat. _M_
@@ -78,6 +79,10 @@ _(none open)_
 ## Done
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
+
+- [x] `rooms` **The room list says what each room is doing, and can be acted on** — every row carries a coloured status tag: `live` (someone is online), `open` (usable, nobody there), `closed` (the idle sweep) — and the list is ordered live → open → closed so the room you are in is never buried under old ones. Filter chips with counts narrow it to any of those. A ✕ on each row deletes a room you own or leaves one you joined, with a two-step confirm, without opening it first; deleting the room you are in also detaches the tab. Server calls are the existing `DELETE /api/rooms/:id` (owner) and `PATCH { leave: true }` (member). `api:smoke` now also checks that the list reports a closed room as closed, which is what the tags read. Not checked: the list itself was never drawn in front of me — the room drawer needs a signed-in account and the preview browser has none, so the status tags and filter row are verified by types, build and the API shape rather than by eye. _2026-11-20 · `HASH`_
+
+- [x] `saves` **Tags on saved programs, for filtering** — `saves.tags text[]` (schema pushed), normalised on both sides (`Arrays`, `my revision`, `my revision!` → `arrays`, `my-revision`, no duplicates, at most eight, 24 characters each), so the browser and the database agree. The save form offers twelve presets (arrays, sorting, matrix, stack, queue, linked-list, tree, graph, recursion, search, dynamic-programming, strings) plus a field for a tag of your own, every row shows its tags, the drawer has a filter row with a count per tag, the search box matches tag words, and tags can be changed later with the pencil. Device-only saves carry tags too (old entries are read back with an empty list). `api:smoke` covers normalisation, replacement and “a patch without tags leaves them alone”. Verified in the browser on a device save: presets and a custom tag saved, row chips and filter counts correct (`graph 1`, `sorting 1`), filtering narrowed 2 → 1, search `graph` matched the tag, edit-mode chips preselected and saved. _2026-11-20 · `HASH`_
 
 - [x] `library` **A library view is a link** — `?topic=matrix&step=6` opens Matrices at step 6, because the topic is read from the address on mount, written back as you browse (debounced, `replaceState`, first topic left out so a plain visit keeps a clean URL) and followed on Back/Forward. A linked view lands on its step and stays paused instead of scrolling on; switching topic resets to the first step and drops `step` from the address. The board half of the old item is still open. Verified in the browser: the link opened Matrices 7/22, a topic switch rewrote `?topic=graph`, and the default topic wrote `?mode=library` alone. _2026-11-20 · `ead535e`_
 

@@ -3923,3 +3923,128 @@ button {
   white-space: nowrap;
   border: 0;
 }
+
+/* ------------------------------------------------------- rooms + tags -- */
+/* the count next to a filter chip, so "closed 3" reads at a glance */
+.chip-count {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--faint);
+}
+
+.chip.on .chip-count {
+  color: var(--gold-deep);
+}
+
+.room-filter,
+.tag-filter {
+  flex-wrap: wrap;
+}
+
+/* room status: live is green, usable-but-empty is gold, closed is quiet */
+.room-tag {
+  flex: none;
+  padding: 1px 7px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.room-tag.live {
+  color: var(--sage);
+  border-color: var(--sage);
+}
+
+.room-tag.open {
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+  border-color: var(--gold);
+}
+
+.room-tag.closed {
+  color: var(--faint);
+  background: var(--card-2);
+  border-color: var(--line-soft);
+}
+
+.room-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-row .room-open {
+  flex: 1;
+  min-width: 0;
+}
+
+.room-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-row-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex: none;
+}
+
+/* tags on a saved program */
+.tag-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag-chip {
+  padding: 3px 8px;
+  font-size: 10.5px;
+  color: var(--muted);
+  background: var(--card-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+}
+
+.tag-chip.on {
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+  border-color: var(--gold);
+}
+
+.tag-add {
+  display: flex;
+  gap: 6px;
+}
+
+.tag-add .drawer-input {
+  flex: 1;
+}
+
+.save-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.save-tag {
+  padding: 1px 6px;
+  font-size: 9.5px;
+  color: var(--gold-deep);
+  background: var(--gold-soft);
+  border-radius: 999px;
+}

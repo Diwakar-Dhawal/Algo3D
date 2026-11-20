@@ -8,6 +8,7 @@ import { GoogleMark } from './GoogleMark';
 import type { BoardElement } from '../board/elements';
 import { readPersonalBoard } from '../board/storage';
 import { addLocalSave, isLocalSave, localSaves, removeLocalSave, updateLocalSave } from '../saves/local';
+import { MAX_TAGS, PRESET_TAGS, addTag, normaliseTag, tagCounts, toggleTag } from '../saves/tags';
 
 type Props = {
   open: boolean;
@@ -73,6 +74,73 @@ function when(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/**
+ * Tags for one program: the common topics one click away, plus a field for a
+ * tag of your own ("my-revision", "interview-prep").
+ */
+function TagPicker({ value, onChange, id }: { value: string[]; onChange: (next: string[]) => void; id: string }) {
+  const [custom, setCustom] = useState('');
+  const commit = () => {
+    const next = addTag(value, custom);
+    setCustom('');
+    if (next.length !== value.length) onChange(next);
+  };
+  const full = value.length >= MAX_TAGS;
+
+  return (
+    <div className="tag-picker">
+      <div className="tag-row" role="group" aria-label="Tags">
+        {PRESET_TAGS.map((tag) => {
+          const on = value.includes(tag);
+          return (
+            <button
+              key={tag}
+              type="button"
+              className={`tag-chip ${on ? 'on' : ''}`}
+              aria-pressed={on}
+              onClick={() => onChange(toggleTag(value, tag))}
+            >
+              {tag}
+            </button>
+          );
+        })}
+        {value
+          .filter((tag) => !PRESET_TAGS.includes(tag))
+          .map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className="tag-chip on is-own"
+              title="Remove this tag"
+              onClick={() => onChange(value.filter((item) => item !== tag))}
+            >
+              {tag} ✕
+            </button>
+          ))}
+      </div>
+      <div className="tag-add">
+        <input
+          id={`${id}-tag`}
+          className="drawer-input"
+          value={custom}
+          placeholder={full ? `up to ${MAX_TAGS} tags` : 'Your own tag'}
+          disabled={full}
+          onChange={(event) => setCustom(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commit();
+            }
+          }}
+        />
+        <button type="button" className="ghost-action" onClick={commit} disabled={full || !normaliseTag(custom)}>
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props) {
   const { user, stats, available, setStats } = useAuth();
   const [saves, setSaves] = useState<Save[]>([]);
@@ -82,11 +150,14 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
   const [busy, setBusy] = useState<number | 'new' | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  /** tags for the program about to be saved */
+  const [tags, setTags] = useState<string[]>([]);
   const [onlyStars, setOnlyStars] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
-  const [draft, setDraft] = useState({ title: '', description: '' });
+  const [draft, setDraft] = useState({ title: '', description: '', tags: [] as string[] });
   /** the private whiteboard as it stands when the drawer opens */
   const [drawing, setDrawing] = useState<BoardElement[]>([]);
   const [withBoard, setWithBoard] = useState(false);
@@ -132,16 +203,20 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
 
   const all = useMemo(() => [...local, ...saves], [local, saves]);
 
+  /** every tag in use, busiest first, for the filter row */
+  const availableTags = useMemo(() => tagCounts(all), [all]);
+
   const shown = useMemo(() => {
     const starred = onlyStars ? all.filter((save) => save.favorite) : all;
+    const tagged = tagFilter ? starred.filter((save) => (save.tags ?? []).includes(tagFilter)) : starred;
     const needle = query.trim().toLowerCase();
-    if (!needle) return starred;
-    return starred.filter((save) =>
-      `${save.title} ${save.description ?? ''} ${LANG_LABEL[save.language] ?? save.language}`
+    if (!needle) return tagged;
+    return tagged.filter((save) =>
+      `${save.title} ${save.description ?? ''} ${LANG_LABEL[save.language] ?? save.language} ${(save.tags ?? []).join(' ')}`
         .toLowerCase()
         .includes(needle)
     );
-  }, [all, onlyStars, query]);
+  }, [all, onlyStars, tagFilter, query]);
 
   if (!open) return null;
 
@@ -158,6 +233,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
         code: current.code,
         inputs: current.inputs,
         favorite: false,
+        tags,
       });
       setBusy(null);
       if (!created) {
@@ -167,6 +243,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
       setLocal(localSaves());
       setTitle('');
       setDescription('');
+      setTags([]);
       setNote('Saved on this device.');
       return;
     }
@@ -177,6 +254,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
       code: current.code,
       inputs: current.inputs,
       board: withBoard && drawing.length ? drawing : undefined,
+      tags,
     });
     setBusy(null);
     if (!result) {
@@ -186,13 +264,14 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
     setSaves((prev) => [result.save, ...prev]);
     setTitle('');
     setDescription('');
+    setTags([]);
     setStats(stats ? { ...stats, saves: stats.saves + 1 } : stats);
     setNote(withBoard && drawing.length ? 'Saved with your drawing.' : 'Saved.');
   };
 
   const startEdit = (save: Save) => {
     setEditing(save.id);
-    setDraft({ title: save.title, description: save.description ?? '' });
+    setDraft({ title: save.title, description: save.description ?? '', tags: save.tags ?? [] });
     setNote(null);
   };
 
@@ -202,6 +281,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
       const next = updateLocalSave(save.id, {
         title: draft.title.trim() || 'Untitled program',
         description: draft.description.trim(),
+        tags: draft.tags,
       });
       setBusy(null);
       if (!next) setNote('Could not update that program.');
@@ -214,6 +294,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
     const result = await authApi.update(save.id, {
       title: draft.title.trim() || 'Untitled program',
       description: draft.description.trim(),
+      tags: draft.tags,
     });
     setBusy(null);
     if (!result) {
@@ -337,6 +418,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                   {drawing.length ? ` · ${drawing.length} shapes` : ' · nothing drawn yet'}
                 </span>
               </label>
+              <TagPicker id="new-save" value={tags} onChange={setTags} />
               <button className="btn-gold" onClick={saveCurrent} disabled={busy === 'new'}>
                 {busy === 'new' ? 'Saving…' : 'Save current'}
               </button>
@@ -356,9 +438,26 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                 className="drawer-input drawer-search"
                 type="search"
                 value={query}
-                placeholder="Search titles, descriptions, languages"
+                placeholder="Search titles, descriptions, tags"
                 onChange={(event) => setQuery(event.target.value)}
               />
+            ) : null}
+
+            {availableTags.length > 0 ? (
+              <div className="drawer-tabs tag-filter" role="group" aria-label="Filter by tag">
+                <button className={`chip ${tagFilter === null ? 'on' : ''}`} onClick={() => setTagFilter(null)}>
+                  All tags
+                </button>
+                {availableTags.map(({ tag, count }) => (
+                  <button
+                    key={tag}
+                    className={`chip ${tagFilter === tag ? 'on' : ''}`}
+                    onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                  >
+                    {tag} <span className="chip-count">{count}</span>
+                  </button>
+                ))}
+              </div>
             ) : null}
 
             {note ? <p className="drawer-note">{note}</p> : null}
@@ -394,6 +493,11 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                         placeholder="Description (optional)"
                         onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
                       />
+                      <TagPicker
+                        id={`edit-${save.id}`}
+                        value={draft.tags}
+                        onChange={(next) => setDraft((prev) => ({ ...prev, tags: next }))}
+                      />
                       <div className="save-edit-actions">
                         <button className="btn-gold" onClick={() => void commitEdit(save)} disabled={busy === save.id}>
                           Save
@@ -419,6 +523,18 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                           {LANG_LABEL[save.language] ?? save.language} · {when(save.updatedAt)} ·{' '}
                           {save.code.split('\n').length} lines
                         </span>
+                        {(save.tags ?? []).length ? (
+                          <span className="save-tags">
+                            {(save.tags ?? []).slice(0, 4).map((tag) => (
+                              <span className="save-tag" key={tag}>
+                                {tag}
+                              </span>
+                            ))}
+                            {(save.tags ?? []).length > 4 ? (
+                              <span className="save-tag">+{(save.tags ?? []).length - 4}</span>
+                            ) : null}
+                          </span>
+                        ) : null}
                         {isLocalSave(save) ? (
                           <span className="save-local" title="Stored in this browser only">
                             this device

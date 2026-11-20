@@ -13,7 +13,11 @@ function read(): Save[] {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     if (!Array.isArray(parsed)) return [];
-    return (parsed as Save[]).filter((save) => typeof save?.id === 'number' && typeof save?.code === 'string');
+    // programs saved before tags existed come back with an empty list, not
+    // `undefined`, so every screen can read `save.tags` without a guard
+    return (parsed as Save[])
+      .filter((save) => typeof save?.id === 'number' && typeof save?.code === 'string')
+      .map((save) => ({ ...save, tags: Array.isArray(save.tags) ? save.tags : [] }));
   } catch {
     return [];
   }
@@ -45,6 +49,7 @@ export function addLocalSave(entry: {
   code: string;
   inputs: string;
   favorite: boolean;
+  tags?: string[];
 }): Save | null {
   const now = new Date().toISOString();
   const save: Save = {
@@ -56,6 +61,7 @@ export function addLocalSave(entry: {
     inputs: entry.inputs,
     favorite: entry.favorite,
     board: null,
+    tags: entry.tags ?? [],
     createdAt: now,
     updatedAt: now,
   };
@@ -64,7 +70,7 @@ export function addLocalSave(entry: {
 
 export function updateLocalSave(
   id: number,
-  patch: Partial<Pick<Save, 'title' | 'description' | 'favorite'>>
+  patch: Partial<Pick<Save, 'title' | 'description' | 'favorite' | 'tags'>>
 ): Save | null {
   const saves = read();
   const at = saves.findIndex((save) => save.id === id);

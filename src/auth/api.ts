@@ -29,6 +29,8 @@ export type Save = {
   favorite: boolean;
   /** the whiteboard saved with this program, or null for code only */
   board: BoardElement[] | null;
+  /** free-form tags for filtering ("arrays", "my-revision") */
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -93,8 +95,19 @@ export const authApi = {
     description?: string;
     favorite?: boolean;
     board?: BoardElement[];
+    tags?: string[];
   }) => call<{ save: Save }>('/api/saves', { method: 'POST', body }),
-  update: (id: number, patch: { title?: string; description?: string; code?: string; inputs?: string; favorite?: boolean }) =>
+  update: (
+    id: number,
+    patch: {
+      title?: string;
+      description?: string;
+      code?: string;
+      inputs?: string;
+      favorite?: boolean;
+      tags?: string[];
+    }
+  ) =>
     call<{ save: Save }>(`/api/saves/${id}`, { method: 'PATCH', body: patch }),
   remove: (id: number) => call<{ ok: boolean }>(`/api/saves/${id}`, { method: 'DELETE' }),
   record: (kind: 'run' | 'save' = 'run') =>

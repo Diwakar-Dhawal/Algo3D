@@ -6,7 +6,19 @@ import { GoogleMark } from '../auth/GoogleMark';
 import { useRooms } from './RoomContext';
 import { ROOM_ROLES, roleLabel } from './roles';
 import { getRoomSeed } from './seed';
-import type { RoomMember } from './types';
+import type { RoomMember, RoomSummary } from './types';
+
+/** a room is live while someone is in it, open while it is merely usable, closed once it went idle */
+type RoomStatus = 'live' | 'open' | 'closed';
+
+const STATUS_LABEL: Record<RoomStatus, string> = { live: 'live', open: 'open', closed: 'closed' };
+/** live rooms first, then open, then the ones the idle sweep closed */
+const STATUS_RANK: Record<RoomStatus, number> = { live: 0, open: 1, closed: 2 };
+
+function statusOf(room: RoomSummary): RoomStatus {
+  if (room.closed) return 'closed';
+  return room.online > 0 ? 'live' : 'open';
+}
 
 type Props = {
   open: boolean;
@@ -30,6 +42,9 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
   const [busy, setBusy] = useState<'create' | 'join' | null>(null);
   const [copied, setCopied] = useState<'viewer' | 'editor' | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** the room whose delete/leave is waiting for a second click */
+  const [confirmRoom, setConfirmRoom] = useState<number | null>(null);
+  const [roomFilter, setRoomFilter] = useState<'all' | RoomStatus>('all');
 
   useEffect(() => {
     if (open && initialCode) setCode(initialCode);
@@ -39,6 +54,7 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
     if (!open) {
       setError(null);
       setConfirmDelete(false);
+      setConfirmRoom(null);
       setCopied(null);
       return;
     }
@@ -58,6 +74,11 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
 
   const active = rooms.active;
   const role = rooms.role;
+  // live rooms above open ones, and the idle-closed ones last
+  const shownRooms = rooms.rooms
+    .filter((room) => roomFilter === 'all' || statusOf(room) === roomFilter)
+    .slice()
+    .sort((a, b) => STATUS_RANK[statusOf(a)] - STATUS_RANK[statusOf(b)]);
 
   const create = async () => {
     setBusy('create');
@@ -66,6 +87,14 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
     setBusy(null);
     if (ok) setName('');
     else setError('Could not create the room.');
+  };
+
+  /** delete your own room, or leave someone else's, straight from the list */
+  const removeRoom = async (room: RoomSummary) => {
+    setConfirmRoom(null);
+    const mine = room.ownerId === user?.id;
+    const ok = mine ? await rooms.deleteRoomById(room.id) : await rooms.leaveRoomById(room.id);
+    if (!ok) setError(mine ? 'Could not delete that room.' : 'Could not leave that room.');
   };
 
   const join = async () => {
@@ -313,20 +342,67 @@ export function RoomsDrawer({ open, onClose, initialCode = '' }: Props) {
                   {!rooms.listLoading && rooms.rooms.length === 0 ? (
                     <p className="drawer-empty">No rooms yet — start one above.</p>
                   ) : null}
+                  {rooms.rooms.length > 0 ? (
+                    <div className="drawer-tabs room-filter" role="group" aria-label="Filter rooms by status">
+                      {(['all', 'live', 'open', 'closed'] as const).map((option) => {
+                        const count =
+                          option === 'all'
+                            ? rooms.rooms.length
+                            : rooms.rooms.filter((room) => statusOf(room) === option).length;
+                        return (
+                          <button
+                            key={option}
+                            className={`chip ${roomFilter === option ? 'on' : ''}`}
+                            onClick={() => setRoomFilter(option)}
+                          >
+                            {option === 'all' ? 'All' : STATUS_LABEL[option]}{' '}
+                            <span className="chip-count">{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   <ul className="room-list">
-                    {rooms.rooms.map((entry) => (
-                      <li key={entry.id}>
-                        <button className="room-open" onClick={() => void rooms.openRoom(entry.id)}>
-                          <b>{entry.name}</b>
-                          <span>
-                            {entry.closed ? 'closed · ' : ''}
-                            {roleLabel(entry.role)} · {entry.online} online · {entry.members} member
-                            {entry.members === 1 ? '' : 's'} · owner {entry.ownerName ?? 'unknown'}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
+                    {shownRooms.map((entry) => {
+                      const status = statusOf(entry);
+                      const mine = entry.ownerId === user?.id;
+                      return (
+                        <li key={entry.id} className="room-row">
+                          <button className="room-open" onClick={() => void rooms.openRoom(entry.id)}>
+                            <span className="room-row-head">
+                              <b>{entry.name}</b>
+                              <span className={`room-tag ${status}`}>{STATUS_LABEL[status]}</span>
+                            </span>
+                            <span>
+                              {roleLabel(entry.role)} · {entry.online} online · {entry.members} member
+                              {entry.members === 1 ? '' : 's'} · owner {entry.ownerName ?? 'unknown'}
+                            </span>
+                          </button>
+                          {confirmRoom === entry.id ? (
+                            <span className="room-row-confirm">
+                              <button className="ghost-action danger" onClick={() => void removeRoom(entry)}>
+                                {mine ? 'Delete' : 'Leave'}
+                              </button>
+                              <button className="link-btn" onClick={() => setConfirmRoom(null)}>
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              className="save-del"
+                              title={mine ? 'Delete this room for everyone' : 'Leave this room'}
+                              onClick={() => setConfirmRoom(entry.id)}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
+                  {shownRooms.length === 0 ? (
+                    <p className="drawer-empty">No {roomFilter} rooms right now.</p>
+                  ) : null}
                 </section>
               </>
             )}

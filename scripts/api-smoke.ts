@@ -236,6 +236,7 @@ async function run() {
           language: 'java',
           code: 'class Main {}',
           board: [{ id: 'smoke-rect', type: 'rectangle', version: 1 }],
+          tags: ['Arrays', 'my revision', 'arrays', '   '],
         },
       }) as never,
       res as never
@@ -243,12 +244,36 @@ async function run() {
     const created = parse(res);
     check('create returns 201', res.statusCode === 201, `got ${res.statusCode}`);
     check('create stores the drawing', created.save?.board?.length === 1, JSON.stringify(created.save?.board));
+    check(
+      'tags are normalised, deduped and blanks dropped',
+      JSON.stringify(created.save?.tags) === JSON.stringify(['arrays', 'my-revision']),
+      JSON.stringify(created.save?.tags)
+    );
     const id = Number(created.save?.id);
 
     if (id) {
       res = makeRes();
       await saveItem(makeReq(`/api/saves/${id}`, { method: 'PATCH', auth, body: { favorite: true } }) as never, res as never);
       check('star toggle works', parse(res).save?.favorite === true);
+
+      res = makeRes();
+      await saveItem(
+        makeReq(`/api/saves/${id}`, { method: 'PATCH', auth, body: { tags: ['stack', 'Stack', 'custom tag'] } }) as never,
+        res as never
+      );
+      check(
+        'tags can be replaced',
+        JSON.stringify(parse(res).save?.tags) === JSON.stringify(['stack', 'custom-tag']),
+        JSON.stringify(parse(res).save?.tags)
+      );
+
+      res = makeRes();
+      await saveItem(makeReq(`/api/saves/${id}`, { method: 'PATCH', auth, body: { title: 'Smoke renamed' } }) as never, res as never);
+      check(
+        'a patch without tags leaves them alone',
+        JSON.stringify(parse(res).save?.tags) === JSON.stringify(['stack', 'custom-tag']),
+        JSON.stringify(parse(res).save?.tags)
+      );
 
       res = makeRes();
       await activity(makeReq('/api/activity', { method: 'POST', auth, body: { kind: 'run' } }) as never, res as never);
@@ -328,6 +353,14 @@ async function run() {
       await sql.query("update rooms set last_active_at = now() - interval '25 minutes' where id = $1", [roomId]);
       const closedIds = await closeIdleRooms();
       check('the idle sweep closes the aged room', closedIds.includes(roomId), closedIds.join(','));
+
+      // the list is what the Rooms drawer draws its status tags from
+      res = makeRes();
+      await rooms(makeReq('/api/rooms', { auth }) as never, res as never);
+      const listed = (parse(res).rooms as { id: number; closed: boolean; online: number }[] | undefined)?.find(
+        (room) => room.id === roomId
+      );
+      check('the list reports the room as closed', res.statusCode === 200 && listed?.closed === true, JSON.stringify(listed));
       check('the close is published to the room', events.includes(`room:${roomId}|closed`), events.join(' '));
 
       res = makeRes();

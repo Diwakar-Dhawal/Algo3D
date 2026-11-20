@@ -117,3 +117,7 @@ create table if not exists room_board (
   updated_by  bigint      references users(id) on delete set null,
   updated_at  timestamptz not null default now()
 );
+
+-- free-form tags ("arrays", "stack", "my-revision") for filtering saved
+-- programs; the browser normalises them, this is the stored list
+alter table saves add column if not exists tags text[] not null default '{}';
