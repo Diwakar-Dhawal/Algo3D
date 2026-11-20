@@ -34,7 +34,8 @@ npm run build      # tsc --noEmit + vite build (the check that matters)
 npx tsc --noEmit -p tsconfig.json
 npm run verify     # headless trace/transpiler checks
 npm run db:push    # schema
-npm run api:smoke   # auth boundary + room lifecycle (CLERK_TEST_TOKEN=<session jwt> runs the signed-in half)
+npm run api:smoke   # auth boundary + signed-in flows + room lifecycle, no token needed
+                    # (a test identity via scripts/clerk-test-stub.ts; CLERK_TEST_TOKEN=<session jwt> uses a real session)
 npm run ws:check    # the room socket's refusals: bad token, wrong path, unauthenticated join
 ```
 

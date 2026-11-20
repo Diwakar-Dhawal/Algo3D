@@ -1,13 +1,19 @@
 /**
  * Checks the auth boundary of the api/ handlers against the real database:
- * guests and bad tokens must be rejected, and the schema must be in place.
- * Authorised flows need a real Clerk session token; pass one with
- * CLERK_TEST_TOKEN=<jwt> to run those too.
+ * guests and bad tokens must be rejected, the schema must be in place, and the
+ * signed-in flows must work — saves, stars, streaks, and a whole room.
  *
  *   npm run api:smoke
+ *
+ * No token to paste: the npm script bundles `@clerk/backend` to
+ * `scripts/clerk-test-stub.ts`, which resolves a `test:<clerk_user_id>` identity
+ * against real rows and hands every other token to the real SDK. The test
+ * account (and everything the run creates under it) is deleted at the end.
+ * Set CLERK_TEST_TOKEN=<session jwt> to run the same flows as a real session.
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { db } from '../api/_lib';
+import { TEST_TOKEN_PREFIX, isTestToken } from './clerk-test-stub';
 import { onEvent } from '../api/_events';
 import config from '../api/config';
 import me from '../api/auth/me';
@@ -215,11 +221,17 @@ async function run() {
   await roomItem(makeReq('/api/rooms/1', { method: 'DELETE' }) as never, res as never);
   check('guest room delete is 401', res.statusCode === 401, `got ${res.statusCode}`);
 
-  // --- authorised flows (needs a live Clerk session token) ----------------
-  const token = process.env.CLERK_TEST_TOKEN;
-  if (!token) {
-    results.push('SKIP  signed-in save/star/streak flow — set CLERK_TEST_TOKEN=<session jwt> to run it');
-  } else {
+  // --- authorised flows ---------------------------------------------------
+  // a `test:` identity needs no human: the bundling alias resolves it locally,
+  // and any other token is verified by Clerk exactly as in production
+  const token = process.env.CLERK_TEST_TOKEN ?? `test:smoke-${Date.now()}`;
+  const localIdentity = isTestToken(token);
+  results.push(
+    localIdentity
+      ? 'INFO  signed-in flows run as a local test identity — no Clerk token needed'
+      : 'INFO  signed-in flows run as a real Clerk session'
+  );
+  {
     const auth = `Bearer ${token}`;
     res = makeRes();
     await me(makeReq('/api/auth/me', { auth }) as never, res as never);
@@ -385,6 +397,17 @@ async function run() {
       check('the test room is removed', res.statusCode === 200 && parse(res).ok === true, `got ${res.statusCode}`);
     }
     stopEvents();
+  }
+
+  // a local identity is disposable: the run created the account row, so the
+  // saves, activity and rooms it touched cascade away with it
+  if (localIdentity) {
+    const sub = token.slice(TEST_TOKEN_PREFIX.length);
+    await sql.query('delete from users where clerk_user_id = $1', [sub]);
+    const left = (await sql.query('select count(*)::int as n from users where clerk_user_id = $1', [sub])) as {
+      n: number;
+    }[];
+    check('the test account and everything under it is removed', (left[0]?.n ?? 0) === 0, `${left[0]?.n} left`);
   }
 
   console.log(results.join('\n'));
