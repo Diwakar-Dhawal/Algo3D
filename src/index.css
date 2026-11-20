@@ -3423,7 +3423,9 @@ button {
   font-weight: 600;
 }
 
+/* .drawer-input grows (flex: 1) for the name field; the search box must not */
 .drawer-search {
+  flex: 0 0 auto;
   margin-top: 10px;
   height: 34px;
   box-sizing: border-box;
@@ -3487,19 +3489,33 @@ button {
     display: grid;
   }
 
-  /* the sections get a full-width row of their own, so nothing wraps oddly */
+  /* sections become a thumb-reachable bar pinned to the bottom of the screen */
   .modes {
-    order: 4;
-    flex: 1 1 100%;
-    margin: 2px 0 0;
-    justify-content: space-between;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    gap: 4px;
+    margin: 0;
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--glass-strong);
+    box-shadow: 0 -6px 20px rgba(33, 28, 21, 0.08);
   }
 
   .mode {
     flex: 1 1 0;
-    padding: 7px 4px;
+    padding: 10px 4px;
     font-size: 11.5px;
     text-align: center;
+  }
+
+  /* the panes stop above the bar instead of running underneath it */
+  .app {
+    padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px));
   }
 
   /* library options stack under the topic title instead of overflowing */
