@@ -23,6 +23,10 @@ _Nothing known._
 
 ## P1 — next up
 
+- [ ] `platform` **Addressable state** — put mode, topic, sample and step in the URL (`/lab/java?sample=bubble&step=12`, `/library/matrix`) so refresh, Back and shared links work; prerequisite for step permalinks and embeds. Today only the rooms invite query touches `history`. _M_
+- [ ] `ui` **Sample gallery instead of the sample dropdown**, and run the picked sample so its scene is on screen at step 1 before the first keystroke. _M_
+- [ ] `runtime` **Copy the current frame as an image** — 3D canvas plus step note and code line, for pasting into Discord/Notion. The only artefact this product makes that other people see. _M_
+- [ ] `ui` **Guest-first saves** — three programs in `localStorage` with a “sign in to sync” nudge, so nobody loses work by not having an account. _M_
 - [ ] `lang` **Wire the other modes onto the stdin buffer** — Python `input()`, C++ `cin >>`, JS `readline()` can all map onto `src/lang/stdin.ts` (the Java side already reads it); needs translator support plus showing the input box for those modes. _M_
 - [ ] `rooms` **Sync the standard-input buffer into rooms** — `RoomState` carries code and inputs only, so a joiner keeps their own stdin text. _S_
 - [ ] `viz` **Auto-pick a topic view for user code** — detect arrays, grids, linked lists and trees in the trace and render the matching 3D topic view in the lab instead of only heap cards. _L_
@@ -33,7 +37,7 @@ _Nothing known._
 
 ## P2 — improvements
 
-- [ ] `editor` Inline "what this visualizer runs" reference generated from the interpreter/translator tables. _S_
+- [ ] `editor` Inline "what this visualizer runs" reference generated from the interpreter/translator tables. _S_ — surface the same table from the Help sheet (“What can this run?”), since that is where people ask it.
 - [ ] `editor` Find & replace in the code editor (`Ctrl/Cmd + F`). _M_
 - [ ] `editor` Bracket matching and auto-indent on Enter. _S_
 - [ ] `runtime` Expected-vs-actual output diff for a program with known output. _M_
@@ -60,11 +64,18 @@ _Nothing known._
 - [ ] `platform` Visible focus rings across every control. _S_
 - [ ] `platform` Offline read-only mode (service worker) for the library. _L_
 
+- [ ] `ui` **Command palette (`Ctrl/Cmd + K`)** over modes, all 7 topics, samples, saved programs, theme and Run — promoted from P3 because seven topics plus nine samples is already past what a dropdown should hold, and the phone header is a menu. _M_
+- [ ] `ui` **Breadcrumb under the mode tabs** (`Library › Sorting › Bubble sort`) — phones show one pane at a time, so the highlighted tab is the only cue to where you are. _S_
+- [ ] `ui` **Keep each pane's state when switching** — scroll position, 3D camera and inspector tab survive a Code/Visual/Panels round trip. _S_
+- [ ] `ui` **“Continue where you left off” card** — surface the existing `algo3d.lab.v2` autosave instead of asking people to remember. _S_
+- [ ] `runtime` **“Predict the next step” practice mode** — show the array at step N, ask what changes or what prints, then reveal. The one retention loop VisuAlgo and Python Tutor do not have. _L_
+- [ ] `platform` **Instrument the basic funnel** (open → sample picked → Run → step 10 → signed in); there is no measurement today, so “where people leave” is a guess. _S_
+- [ ] `platform` **Embed a topic at a step** (`<iframe>`) — how a teacher adopts a tool and brings a class. _M_
+
 ## P3 — nice to have
 
 - [ ] `lang` Python classes and `enumerate`/`zip`.
 - [ ] `lang` C++ STL containers (`queue`, `stack`, `priority_queue`) once the tracer can show them.
-- [ ] `ui` Command palette (`Ctrl/Cmd + K`) over modes, topics and saved programs.
 - [ ] `ui` Split-view: two topics side by side.
 - [ ] `saves` Public share link for a saved program.
 - [ ] `board` Link a whiteboard region to a topic/view.
