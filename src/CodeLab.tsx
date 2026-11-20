@@ -128,6 +128,16 @@ export function CodeLab({
 
   const [view, setView] = useState<LabView>(boot.view);
 
+  // the tour asks for a pane, because below 1080 px only one is on screen
+  useEffect(() => {
+    const onShow = (event: Event) => {
+      const wanted = (event as CustomEvent<string>).detail;
+      if (wanted === 'code' || wanted === 'visual' || wanted === 'panels') setView(wanted);
+    };
+    window.addEventListener('algo3d:show-pane', onShow);
+    return () => window.removeEventListener('algo3d:show-pane', onShow);
+  }, []);
+
   const [memory, setMemory] = useState<LabMemory>(boot.memory);
   const [lang, setLang] = useState<LangId>(boot.lang);
   const langDef = langById(lang);

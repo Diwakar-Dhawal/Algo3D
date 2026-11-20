@@ -163,6 +163,7 @@ function Shell() {
           <Account />
           <button
             className={`icon-btn menu-btn ${menuOpen ? 'on' : ''}`}
+            data-tour="menu"
             aria-label="More options"
             aria-haspopup="menu"
             aria-expanded={menuOpen}

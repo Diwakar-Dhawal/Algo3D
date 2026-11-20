@@ -2,14 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type TourMode = 'code' | 'library' | 'board';
 
+type Pane = 'code' | 'visual' | 'panels';
+
 type Step = {
-  /** element to spotlight; without one the card is centred */
+  /** elements to spotlight, first visible one wins; without one the card is centred */
   target?: string;
   /** the section this step lives in, so the tour can take you there */
   mode?: TourMode;
+  /** below 1080 px the lab shows one pane at a time, so pick the right one */
+  pane?: Pane;
   title: string;
   body: string;
 };
+
+const PANE_EVENT = 'algo3d:show-pane';
+
+function showPane(pane: string | null | undefined) {
+  window.dispatchEvent(new CustomEvent(PANE_EVENT, { detail: pane }));
+}
 
 const STEPS: Step[] = [
   {
@@ -23,27 +33,37 @@ const STEPS: Step[] = [
     body: 'Your code is the lab where you write and trace a program. The algorithm library has ready-made topics to explore. The whiteboard is for sketching ideas by hand.',
   },
   {
+    mode: 'code',
     target: '[data-tour="editor"]',
+    pane: 'code',
     title: 'The source',
     body: 'Pick a language here — Java, Python, JavaScript or C++ — or load a sample. Python, JS and C++ are translated to Java before tracing, so the hint under the editor lists exactly what runs.',
   },
   {
-    target: '[data-tour="saves"]',
+    mode: 'code',
+    target: '[data-tour="editor"] [data-tour="saves"]',
+    pane: 'code',
     title: 'Keep your work',
     body: 'Sign in to save a program with a name and description, star the ones you come back to, and search the lot. Saved codes open straight back into the editor.',
   },
   {
+    mode: 'code',
     target: '[data-tour="run"]',
+    pane: 'code',
     title: 'Run it',
     body: 'Run traces the program without executing anything on a real machine — no compiler, no container. Use the Inputs panel for values your program reads.',
   },
   {
+    mode: 'code',
     target: '[data-tour="playback"]',
+    pane: 'visual',
     title: 'Step through the trace',
     body: 'Play, pause, scrub, or jump a step at a time. Click a line number to set a breakpoint, then Shift + → runs to it. Space plays and the arrow keys step.',
   },
   {
+    mode: 'code',
     target: '[data-tour="inspector"]',
+    pane: 'panels',
     title: 'The inspector',
     body: 'The call stack, heap and every changed value live here, alongside the console and the step history. Click a block in the scene to read what it holds.',
   },
@@ -60,7 +80,9 @@ const STEPS: Step[] = [
     body: 'Sketch an approach before you code it. Your drawing is saved in this browser, and a saved program can keep a copy of it.',
   },
   {
-    target: '[data-tour="help"]',
+    // on a phone the help button lives in the menu, so either will do
+    mode: 'code',
+    target: '[data-tour="help"], [data-tour="menu"]',
     title: 'Never stuck',
     body: 'Press ? at any time — or open the ☰ menu on a phone — for the full keyboard reference, and to replay this tour whenever you want.',
   },
@@ -102,10 +124,13 @@ export function Tour({ onClose, onMode, returnMode }: Props) {
   // the callbacks are recreated by the shell on every render; keep them stable
   const modeRef = useRef(onMode);
   modeRef.current = onMode;
+  /** the pane the lab was showing before the tour moved it around */
+  const startPane = useRef(document.querySelector('.lab')?.getAttribute('data-view'));
 
   const finish = useCallback(() => {
     markTourSeen();
     modeRef.current(returnMode);
+    showPane(startPane.current);
     onClose();
   }, [onClose, returnMode]);
 
@@ -116,10 +141,11 @@ export function Tour({ onClose, onMode, returnMode }: Props) {
 
   const back = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
 
-  // take the reader to the section a step belongs to
+  // take the reader to the section — and, on a phone, the pane — a step lives in
   useEffect(() => {
     if (step.mode) modeRef.current(step.mode);
-  }, [step.mode]);
+    if (step.pane) showPane(step.pane);
+  }, [step.mode, step.pane]);
 
   // lazy panes mount a moment after the mode changes, so keep looking
   useEffect(() => {
@@ -131,12 +157,17 @@ export function Tour({ onClose, onMode, returnMode }: Props) {
     let live = true;
     let tries = 0;
 
+    // a selector list may include a control that is hidden at this width;
+    // the first one with real size is the one on screen
     const measure = () => {
-      const el = document.querySelector<HTMLElement>(step.target!);
-      const box = el?.getBoundingClientRect();
-      if (!box || box.width < 2 || box.height < 2) return false;
-      setRect(box);
-      return true;
+      for (const node of Array.from(document.querySelectorAll<HTMLElement>(step.target!))) {
+        const box = node.getBoundingClientRect();
+        if (box.width > 2 && box.height > 2) {
+          setRect(box);
+          return true;
+        }
+      }
+      return false;
     };
 
     if (!measure()) {
