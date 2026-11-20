@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { CodeLab } from './CodeLab';
 import { Show, SignInButton, UserButton } from '@clerk/react';
 import { AuthProvider, useAuth } from './auth/AuthContext';
@@ -9,6 +9,7 @@ import { ThemeProvider, ThemeToggle, useTheme } from './theme/ThemeContext';
 import { PaneBoundary } from './components/PaneBoundary';
 import { ShortcutSheet } from './components/Shortcuts';
 import { Tour, tourSeen } from './components/Tour';
+import { onUrlChange, readUrl, writeUrl } from './urlstate';
 
 /** the library and the whiteboard (with excalidraw) only load when you open them */
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })));
@@ -67,6 +68,11 @@ type Mode = 'code' | 'library' | 'board';
 const MODE_KEY = 'algo3d:mode';
 
 function readMode(): Mode {
+  // a shared link names the section, and beats whatever this tab last used
+  const fromUrl = readUrl().mode;
+  if (fromUrl === 'library' || fromUrl === 'board' || fromUrl === 'code' || fromUrl === 'lab') {
+    return fromUrl === 'lab' ? 'code' : fromUrl;
+  }
   try {
     const stored = localStorage.getItem(MODE_KEY);
     if (stored === 'library' || stored === 'board' || stored === 'code') return stored;
@@ -78,6 +84,8 @@ function readMode(): Mode {
 
 function Shell() {
   const [mode, setMode] = useState<Mode>(readMode);
+  /** the first render adopts the URL it was loaded with; later changes push */
+  const firstMode = useRef(true);
   const [inviteCode] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '');
   const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -119,7 +127,23 @@ function Shell() {
     } catch {
       /* storage blocked: the choice just does not persist */
     }
+    // and the address bar says where you are; the lab is the default, so it
+    // keeps a clean URL. Section changes push an entry, so Back returns to the
+    // section you came from instead of leaving the site.
+    writeUrl({ mode: mode === 'code' ? undefined : mode }, { push: !firstMode.current });
+    firstMode.current = false;
   }, [mode]);
+
+  // Back/Forward between sections without a full page load
+  useEffect(
+    () =>
+      onUrlChange((state) => {
+        // a URL without a mode is the lab, which is what the first visit stores
+        const next: Mode = state.mode === 'library' || state.mode === 'board' ? state.mode : 'code';
+        setMode(next);
+      }),
+    []
+  );
 
   return (
     <div className="app">

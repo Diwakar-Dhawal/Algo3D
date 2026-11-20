@@ -16,7 +16,13 @@ export function Scene({ camera, children }: Props) {
   const c = stageColors(theme);
 
   return (
-    <Canvas dpr={[1, 2]} gl={{ antialias: true }} camera={{ position: camera, fov: 45, near: 0.1, far: 300 }}>
+    <Canvas
+      dpr={[1, 2]}
+      // “copy this step as an image” reads the canvas after the frame is drawn,
+      // which needs the drawing buffer kept around
+      gl={{ antialias: true, preserveDrawingBuffer: true }}
+      camera={{ position: camera, fov: 45, near: 0.1, far: 300 }}
+    >
       <FitCanvas />
       <color attach="background" args={[c.paper]} />
       <fog attach="fog" args={[c.paper, 34, 90]} />

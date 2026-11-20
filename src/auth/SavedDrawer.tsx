@@ -7,6 +7,7 @@ import { AccountsNotice } from './AccountsNotice';
 import { GoogleMark } from './GoogleMark';
 import type { BoardElement } from '../board/elements';
 import { readPersonalBoard } from '../board/storage';
+import { addLocalSave, isLocalSave, localSaves, removeLocalSave, updateLocalSave } from '../saves/local';
 
 type Props = {
   open: boolean;
@@ -40,6 +41,8 @@ function when(iso: string): string {
 export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props) {
   const { user, stats, available, setStats } = useAuth();
   const [saves, setSaves] = useState<Save[]>([]);
+  /** programs saved on this device by a signed-out visitor */
+  const [local, setLocal] = useState<Save[]>(() => localSaves());
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<number | 'new' | null>(null);
   const [title, setTitle] = useState('');
@@ -63,8 +66,11 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
   useEffect(() => {
     if (!open) return;
     setTitle((prev) => prev || `${LANG_LABEL[current.language] ?? current.language} · ${new Date().toLocaleDateString()}`);
+    // device-only programs are always there, signed in or not
+    setLocal(localSaves());
     if (!user) {
       setSaves([]);
+      setLoading(false);
       return;
     }
     let live = true;
@@ -89,8 +95,10 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  const all = useMemo(() => [...local, ...saves], [local, saves]);
+
   const shown = useMemo(() => {
-    const starred = onlyStars ? saves.filter((save) => save.favorite) : saves;
+    const starred = onlyStars ? all.filter((save) => save.favorite) : all;
     const needle = query.trim().toLowerCase();
     if (!needle) return starred;
     return starred.filter((save) =>
@@ -98,13 +106,35 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
         .toLowerCase()
         .includes(needle)
     );
-  }, [saves, onlyStars, query]);
+  }, [all, onlyStars, query]);
 
   if (!open) return null;
 
   const saveCurrent = async () => {
     setBusy('new');
     setNote(null);
+    // without an account the program stays in this browser; the strip at the top
+    // of the drawer says so on every visit
+    if (!user) {
+      const created = addLocalSave({
+        title: title.trim() || 'Untitled program',
+        description: description.trim(),
+        language: current.language,
+        code: current.code,
+        inputs: current.inputs,
+        favorite: false,
+      });
+      setBusy(null);
+      if (!created) {
+        setNote('This browser refused the save — storage may be full or blocked.');
+        return;
+      }
+      setLocal(localSaves());
+      setTitle('');
+      setDescription('');
+      setNote('Saved on this device.');
+      return;
+    }
     const result = await authApi.create({
       title: title.trim() || 'Untitled program',
       description: description.trim(),
@@ -133,6 +163,19 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
 
   const commitEdit = async (save: Save) => {
     setBusy(save.id);
+    if (isLocalSave(save)) {
+      const next = updateLocalSave(save.id, {
+        title: draft.title.trim() || 'Untitled program',
+        description: draft.description.trim(),
+      });
+      setBusy(null);
+      if (!next) setNote('Could not update that program.');
+      else {
+        setLocal(localSaves());
+        setEditing(null);
+      }
+      return;
+    }
     const result = await authApi.update(save.id, {
       title: draft.title.trim() || 'Untitled program',
       description: draft.description.trim(),
@@ -148,6 +191,13 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
 
   const toggleStar = async (save: Save) => {
     setBusy(save.id);
+    if (isLocalSave(save)) {
+      const next = updateLocalSave(save.id, { favorite: !save.favorite });
+      setBusy(null);
+      if (!next) setNote('Could not update that program.');
+      else setLocal(localSaves());
+      return;
+    }
     const result = await authApi.update(save.id, { favorite: !save.favorite });
     setBusy(null);
     if (!result) {
@@ -164,6 +214,17 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
   const remove = async (save: Save) => {
     if (!window.confirm(`Delete “${save.title}”?`)) return;
     setBusy(save.id);
+    if (isLocalSave(save)) {
+      const ok = removeLocalSave(save.id);
+      setBusy(null);
+      if (!ok) {
+        setNote('Could not delete that program.');
+        return;
+      }
+      setLocal(localSaves());
+      onDeleted?.(save.id);
+      return;
+    }
     const result = await authApi.remove(save.id);
     setBusy(null);
     if (!result) {
@@ -192,19 +253,25 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
           </button>
         </div>
 
-        {!available ? (
-          <AccountsNotice kind="library" />
-        ) : !user ? (
-          <div className="drawer-empty">
-            <p>Sign in with Google to save programs across devices and star your favourites.</p>
-            <SignInButton mode="modal">
-              <span className="btn-google">
-                <GoogleMark /> Continue with Google
-              </span>
-            </SignInButton>
+        {!available ? <AccountsNotice kind="library" /> : null}
+
+        {!user ? (
+          <div className="drawer-device">
+            <p>
+              <b>Saved on this device only.</b> These programs live in this browser — clearing site data or signing in
+              on another computer will not bring them along.
+            </p>
+            {available ? (
+              <SignInButton mode="modal">
+                <span className="btn-google">
+                  <GoogleMark /> Sign in to sync
+                </span>
+              </SignInButton>
+            ) : null}
           </div>
-        ) : (
-          <>
+        ) : null}
+
+        <>
             <div className="drawer-save">
               <span className="eyebrow">Save the code in the editor</span>
               <input
@@ -242,14 +309,14 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
 
             <div className="drawer-tabs">
               <button className={`chip ${onlyStars ? '' : 'on'}`} onClick={() => setOnlyStars(false)}>
-                All {saves.length}
+                All {all.length}
               </button>
               <button className={`chip ${onlyStars ? 'on' : ''}`} onClick={() => setOnlyStars(true)}>
-                ★ Favourites {saves.filter((save) => save.favorite).length}
+                ★ Favourites {all.filter((save) => save.favorite).length}
               </button>
             </div>
 
-            {saves.length > 0 ? (
+            {all.length > 0 ? (
               <input
                 className="drawer-input drawer-search"
                 type="search"
@@ -317,6 +384,11 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                           {LANG_LABEL[save.language] ?? save.language} · {when(save.updatedAt)} ·{' '}
                           {save.code.split('\n').length} lines
                         </span>
+                        {isLocalSave(save) ? (
+                          <span className="save-local" title="Stored in this browser only">
+                            this device
+                          </span>
+                        ) : null}
                         {save.board?.length ? (
                           <span className="save-board" title="Saved with a whiteboard drawing">
                             ✏ {save.board.length} shapes
@@ -334,8 +406,7 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                 )}
               </ul>
             )}
-          </>
-        )}
+        </>
       </aside>
     </div>
   );

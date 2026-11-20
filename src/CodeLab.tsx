@@ -5,6 +5,7 @@ import type { LangId } from './lang/types';
 import type { Trace } from './jvm/types';
 import { PaneBoundary } from './components/PaneBoundary';
 import { ShortcutSheet } from './components/Shortcuts';
+import { SampleGallery } from './components/SampleGallery';
 import { valText } from './memory/layout';
 import { Editor } from './components/Editor';
 import { StepLog, type LogEntry } from './components/StepLog';
@@ -15,6 +16,9 @@ import { SavedDrawer } from './auth/SavedDrawer';
 import { authApi } from './auth/api';
 import type { Save } from './auth/api';
 import { readPersonalBoard, writePersonalBoard } from './board/storage';
+import { hrefFor, onUrlChange, readUrl, writeUrl } from './urlstate';
+import { copyFrame } from './share/frame';
+import { addLocalSave, isLocalSave, updateLocalSave } from './saves/local';
 import type { BoardElement } from './board/elements';
 import { useRooms } from './rooms/RoomContext';
 import { roleLabel } from './rooms/roles';
@@ -124,12 +128,25 @@ export function CodeLab({
     const saved = loadSaved();
     // below the breakpoint the panels are tabs, so a saved collapse state would hide them
     const narrow = window.innerWidth <= 1080;
+    const url = readUrl();
+    const memory = freshMemory(saved);
+    const lang = (LANGS.some((def) => def.id === url.lang) ? (url.lang as LangId) : saved?.lang) ?? ('java' as LangId);
+    // a shared link can name a sample, so the visitor opens exactly what was sent
+    const shared = url.sample ? langById(lang).samples.find((option) => option.id === url.sample) : undefined;
+    if (shared) {
+      memory.code[lang] = shared.code;
+      memory.sample[lang] = shared.id;
+      memory.inputs[lang] = shared.stdin ? '' : inputsFor(lang, shared.code);
+      memory.stdin[lang] = shared.stdin ?? '';
+    }
+    const wantedStep = Number(url.step ?? '0');
     return {
       saved,
       narrow,
-      memory: freshMemory(saved),
-      lang: saved?.lang ?? ('java' as LangId),
+      memory,
+      lang,
       view: saved?.view ?? ('visual' as LabView),
+      step: Number.isFinite(wantedStep) && wantedStep > 0 ? Math.trunc(wantedStep) : 0,
     };
   });
 
@@ -156,8 +173,13 @@ export function CodeLab({
   const chosenSample = langDef.samples.find((option) => option.id === sampleId);
   const isCustom = !chosenSample || chosenSample.code !== code;
   const [inputsDirty, setInputsDirty] = useState(false);
-  const [trace, setTrace] = useState<Trace>(() => runIn(boot.lang, boot.memory.code[boot.lang], boot.memory.inputs[boot.lang]));
-  const [index, setIndex] = useState(0);
+  const [trace, setTrace] = useState<Trace>(() =>
+    runIn(boot.lang, boot.memory.code[boot.lang], boot.memory.inputs[boot.lang], boot.memory.stdin[boot.lang] ?? '')
+  );
+  const [index, setIndex] = useState(boot.step);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const [frameBusy, setFrameBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [breakpoints, setBreakpoints] = useState<Set<number>>(() => new Set());
@@ -253,10 +275,6 @@ export function CodeLab({
   };
 
   const openQuickSave = () => {
-    if (!user) {
-      setSavesOpen(true);
-      return;
-    }
     setDraftTitle(`${langDef.label} · ${new Date().toLocaleDateString()}`);
     setDraftDesc('');
     setFavouriteNew(loaded?.favorite ?? false);
@@ -269,16 +287,30 @@ export function CodeLab({
   };
 
   const saveQuick = async () => {
-    if (!user) return;
     setQuickBusy(true);
     setQuickNote(null);
-    const result = await authApi.create({
+    const entry = {
       title: draftTitle.trim() || 'Untitled program',
       description: draftDesc.trim(),
       language: lang,
       code,
       inputs,
       favorite: favouriteNew,
+    };
+    // without an account the program stays in this browser — the popover says so
+    if (!user) {
+      const local = addLocalSave(entry);
+      setQuickBusy(false);
+      if (!local) {
+        setQuickNote('This browser refused the save — storage may be full or blocked.');
+        return;
+      }
+      setLoaded(local);
+      setSaveOpen(false);
+      return;
+    }
+    const result = await authApi.create({
+      ...entry,
       board: includeBoard && quickBoard.length ? quickBoard : undefined,
     });
     setQuickBusy(false);
@@ -300,6 +332,10 @@ export function CodeLab({
     if (!loaded) return;
     const next = !loaded.favorite;
     setLoaded({ ...loaded, favorite: next });
+    if (isLocalSave(loaded)) {
+      updateLocalSave(loaded.id, { favorite: next });
+      return;
+    }
     const result = await authApi.update(loaded.id, { favorite: next });
     if (!result) {
       setLoaded(loaded);
@@ -404,6 +440,32 @@ export function CodeLab({
   const step = steps[safe];
   const atStart = safe <= 0;
   const atEnd = safe >= total - 1;
+
+  // the address bar always names what is on screen, so a refresh — or a link
+  // pasted into a study group — lands on the same program and step
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      writeUrl({
+        // the language you booted with is the default, so a plain visit keeps a
+        // short URL while a shared link still carries the mode you sent
+        lang: lang === boot.lang ? undefined : lang,
+        sample: isCustom ? undefined : sampleId,
+        step: safe > 0 ? String(safe) : undefined,
+      });
+    }, 220);
+    return () => window.clearTimeout(id);
+  }, [lang, isCustom, sampleId, safe, boot.lang]);
+
+  // Back/Forward through the steps of a shared link
+  useEffect(
+    () =>
+      onUrlChange((state) => {
+        if (!state.step) return;
+        const wanted = Number(state.step);
+        if (Number.isFinite(wanted)) setIndex(Math.max(0, Math.trunc(wanted)));
+      }),
+    []
+  );
 
   /** move the playhead; in a room the step is shared, so the change is pushed */
   const syncStep = (next: number) => {
@@ -538,6 +600,40 @@ export function CodeLab({
     syncStep(Math.max(0, total - 1));
   };
 
+  /** the link to exactly this step, for pasting into chat */
+  const copyStepLink = async () => {
+    const link = `${window.location.origin}${hrefFor({
+      lang,
+      sample: isCustom ? undefined : sampleId,
+      step: safe > 0 ? String(safe) : undefined,
+    })}`;
+    const ok = await writeClipboard(link);
+    setShareNote(ok ? 'Link to this step copied' : 'Could not copy the link — copy it from the address bar');
+    window.setTimeout(() => setShareNote(null), 2200);
+  };
+
+  /** the stage plus its step note, as a picture someone can paste */
+  const copyPicture = async () => {
+    if (!step || frameBusy) return;
+    setFrameBusy(true);
+    const result = await copyFrame({
+      note: step.note,
+      meta: `line ${step.line} · step ${safe + 1}/${total} · ${langDef.file}`,
+      file: langDef.file,
+    });
+    setFrameBusy(false);
+    setShareNote(
+      result === 'copied'
+        ? 'This step copied as an image'
+        : result === 'downloaded'
+          ? 'Image downloaded'
+          : result === 'blocked'
+            ? 'Could not read the scene — try again'
+            : 'Run something first, then copy the frame'
+    );
+    window.setTimeout(() => setShareNote(null), 2600);
+  };
+
   const pickSample = (id: string) => {
     if (!canType) return;
     const sample = langDef.samples.find((s) => s.id === id);
@@ -592,6 +688,8 @@ export function CodeLab({
     : trace.error
       ? { title: 'Runtime error', message: trace.error }
       : null;
+  /** the line the editor marks, so a mistake points at itself */
+  const problemLine = trace.compileError?.line ?? (trace.error ? steps[steps.length - 1]?.line ?? 0 : 0);
 
   return (
     <>
@@ -674,22 +772,15 @@ export function CodeLab({
                 </option>
               ))}
             </select>
-            <select
-              className="minimal-select"
-              value={isCustom ? 'custom' : sampleId}
+            <button
+              className="ghost-action sample-btn"
               disabled={!canType}
-              onChange={(e) => {
-                if (e.target.value !== 'custom') pickSample(e.target.value);
-              }}
-              title={isCustom ? 'This buffer no longer matches a sample' : 'Load a sample program'}
+              onClick={() => setGalleryOpen(true)}
+              title="Browse the sample programs"
             >
-              {isCustom ? <option value="custom">Custom</option> : null}
-              {langDef.samples.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
+              <span>Samples</span>
+              <i>{isCustom ? 'custom' : chosenSample?.label ?? ''}</i>
+            </button>
             <div className="head-tools">
               <button
                 className="ghost-action"
@@ -714,11 +805,19 @@ export function CodeLab({
           code={code}
           onChange={editCode}
           activeLine={step?.line ?? 0}
+          errorLine={problemLine}
           breakpoints={breakpoints}
           onToggleBreakpoint={toggleBreakpoint}
           lang={lang}
           readOnly={!canType}
         />
+
+        {problem ? (
+          <div className="editor-error" role="alert">
+            <b>{problem.title}</b>
+            <span>{problem.message}</span>
+          </div>
+        ) : null}
 
         <div className="panel-foot">
           <button className="btn-gold" data-tour="run" onClick={() => run(code)}>
@@ -729,11 +828,15 @@ export function CodeLab({
             <button
               className="ghost-action save-btn"
               onClick={() => (saveOpen ? setSaveOpen(false) : openQuickSave())}
-              title={user ? 'Save this code — name, description, drawing (⌘/Ctrl + S)' : 'Sign in to save codes'}
+              title={
+                user
+                  ? 'Save this code — name, description, drawing (⌘/Ctrl + S)'
+                  : 'Save this code in this browser (⌘/Ctrl + S) — sign in to sync across devices'
+              }
             >
               Save
             </button>
-            {saveOpen && user ? (
+            {saveOpen ? (
               <>
                 <div className="save-pop-scrim" onClick={() => setSaveOpen(false)} role="presentation" />
                 <div className="save-pop" role="dialog" aria-label="Save this code">
@@ -770,6 +873,9 @@ export function CodeLab({
                       {quickBoard.length ? ` · ${quickBoard.length} shapes` : ' · nothing drawn yet'}
                     </span>
                   </label>
+                  {!user ? (
+                    <p className="pop-note warn">Saved on this device only — sign in to sync across devices.</p>
+                  ) : null}
                   <div className="pop-row">
                     <button
                       className={`pop-star ${favouriteNew ? 'on' : ''}`}
@@ -935,6 +1041,31 @@ export function CodeLab({
             </select>
           </label>
           <button
+            className="icon-btn"
+            title="Copy a link to this step"
+            aria-label="Copy a link to this step"
+            disabled={!step}
+            onClick={() => void copyStepLink()}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
+              <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
+            </svg>
+          </button>
+          <button
+            className="icon-btn"
+            title="Copy this step as an image"
+            aria-label="Copy this step as an image"
+            disabled={!step || frameBusy}
+            onClick={() => void copyPicture()}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2.2" />
+              <circle cx="9" cy="10" r="1.6" />
+              <path d="m4 17 5-4 4 3 3-2 4 3" />
+            </svg>
+          </button>
+          <button
             className="icon-btn help-btn"
             title="Keyboard shortcuts (?)"
             aria-label="Keyboard shortcuts"
@@ -943,6 +1074,11 @@ export function CodeLab({
             ?
           </button>
         </div>
+        {shareNote ? (
+          <div className="share-note" role="status">
+            {shareNote}
+          </div>
+        ) : null}
       </section>
 
       <aside className={`rail ${rightHidden ? 'is-collapsed' : ''}`} data-tour="inspector">
@@ -1130,6 +1266,13 @@ export function CodeLab({
           onPointerDown={(event) => startResize(event, { dir: -1, width: right, min: 240, max: 560, onWidth: setRight })}
         />
       )}
+      <SampleGallery
+        open={galleryOpen}
+        samples={langDef.samples}
+        activeId={isCustom ? undefined : sampleId}
+        onPick={pickSample}
+        onClose={() => setGalleryOpen(false)}
+      />
       <SavedDrawer
         open={savesOpen}
         onClose={() => setSavesOpen(false)}

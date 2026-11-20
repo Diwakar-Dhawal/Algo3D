@@ -8,6 +8,8 @@ type Props = {
   code: string;
   onChange: (code: string) => void;
   activeLine: number;
+  /** the line a failed run points at, marked in the gutter */
+  errorLine?: number;
   breakpoints: Set<number>;
   onToggleBreakpoint: (line: number) => void;
   lang?: LangId;
@@ -19,6 +21,7 @@ export function Editor({
   code,
   onChange,
   activeLine,
+  errorLine = 0,
   breakpoints,
   onToggleBreakpoint,
   lang = 'java',
@@ -129,12 +132,13 @@ export function Editor({
         {lines.map((_, i) => {
           const line = i + 1;
           const isBreak = breakpoints.has(line);
+          const isError = line === errorLine;
           return (
             <button
               key={line}
-              className={`gln ${isBreak ? 'bp' : ''} ${line === activeLine ? 'on' : ''}`}
+              className={`gln ${isBreak ? 'bp' : ''} ${isError ? 'err' : ''} ${line === activeLine ? 'on' : ''}`}
               onClick={() => onToggleBreakpoint(line)}
-              title={isBreak ? 'Remove breakpoint' : 'Set breakpoint'}
+              title={isError ? 'This line failed' : isBreak ? 'Remove breakpoint' : 'Set breakpoint'}
               tabIndex={-1}
             >
               <span className="bp-dot" />
@@ -147,7 +151,7 @@ export function Editor({
       <div className="editor-body">
         <pre className="editor-highlight" ref={highlightRef} aria-hidden>
           {lines.map((line, i) => (
-            <div key={i} className={`hl-line ${i + 1 === activeLine ? 'on' : ''}`}>
+            <div key={i} className={`hl-line ${i + 1 === activeLine ? 'on' : ''} ${i + 1 === errorLine ? 'err' : ''}`}>
               {tokenize(line, lang).map((token, k) => (
                 <span key={k} className={`t-${token.kind}`}>
                   {token.text}

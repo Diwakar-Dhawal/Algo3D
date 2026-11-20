@@ -23,14 +23,10 @@ _Nothing known._
 
 ## P1 — next up
 
-- [ ] `platform` **Addressable state** — put mode, topic, sample and step in the URL (`/lab/java?sample=bubble&step=12`, `/library/matrix`) so refresh, Back and shared links work; prerequisite for step permalinks and embeds. Today only the rooms invite query touches `history`. _M_
-- [ ] `ui` **Sample gallery instead of the sample dropdown**, and run the picked sample so its scene is on screen at step 1 before the first keystroke. _M_
-- [ ] `runtime` **Copy the current frame as an image** — 3D canvas plus step note and code line, for pasting into Discord/Notion. The only artefact this product makes that other people see. _M_
-- [ ] `ui` **Guest-first saves** — three programs in `localStorage` with a “sign in to sync” nudge, so nobody loses work by not having an account. _M_
+- [ ] `library` **Topic and board in the URL** — the lab is addressable (`?sample=&step=`) but `?mode=library` still opens the default topic and a board has no id in the address, so “open this exact matrix” does not work yet. _S_
 - [ ] `lang` **Wire the other modes onto the stdin buffer** — Python `input()`, C++ `cin >>`, JS `readline()` can all map onto `src/lang/stdin.ts` (the Java side already reads it); needs translator support plus showing the input box for those modes. _M_
 - [ ] `rooms` **Sync the standard-input buffer into rooms** — `RoomState` carries code and inputs only, so a joiner keeps their own stdin text. _S_
 - [ ] `viz` **Auto-pick a topic view for user code** — detect arrays, grids, linked lists and trees in the trace and render the matching 3D topic view in the lab instead of only heap cards. _L_
-- [ ] `editor` **Surface run errors on the line that caused them** — the translators already return `{ line, message }`; pin it under the editor and mark the gutter. _S_
 - [ ] `lang` **JavaScript: array methods + arrow functions + template literals** — `sort`, `reverse`, `join`, `slice` desugared to loops first, then `map/filter/reduce`, then `=>` and backticks. _M_
 - [ ] `lang` **Python quality-of-life set** — f-strings, `sorted/sum/min/max/abs`, slicing, list comprehensions, then dicts/sets. _M_
 - [ ] `library` **Language switch in the library** — every topic ships Java only; add Python/JS/C++ sources and reuse the translators. _M_
@@ -41,7 +37,6 @@ _Nothing known._
 - [ ] `editor` Find & replace in the code editor (`Ctrl/Cmd + F`). _M_
 - [ ] `editor` Bracket matching and auto-indent on Enter. _S_
 - [ ] `runtime` Expected-vs-actual output diff for a program with known output. _M_
-- [ ] `runtime` Permalink to a specific trace step. _M_
 - [ ] `runtime` Saved run history per program. _M_
 - [ ] `runtime` Per-step cost hint (comparisons/swaps/writes). _S_
 - [ ] `viz` "Reset camera" control on every 3D pane. _S_
@@ -49,6 +44,7 @@ _Nothing known._
 - [ ] `library` Copy a topic's program into the lab in one click. _S_
 - [ ] `library` Side-by-side algorithm comparison for one topic. _L_
 - [ ] `library` Explain a topic's complexity, not just tag it. _S_
+- [ ] `saves` **Bring device saves into the account on sign-in** — programs saved while signed out stay in the browser; there is no upload or merge step. _S_
 - [ ] `saves` Folders or tags for saved programs. _M_
 - [ ] `saves` Export a save as a real file (`Solution.java`, `solution.py`, …). _S_
 - [ ] `saves` Version history and a diff between revisions. _L_
@@ -87,6 +83,11 @@ _Nothing known._
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
 
+- [x] `ui` **Sample gallery** — the sample dropdown is now a card dialog with a three-line code preview and a “reads console input” badge; picking a card loads the program, traces it and lands on step 1, so the scene exists before the first keystroke. _2026-11-20_
+- [x] `runtime` **Copy the current step as an image** — composes the 3D stage with the step note, line and file into a 1200 px PNG on the clipboard, falling back to a download (with a 1.5 s deadline so a hung permission prompt cannot wedge the button); `preserveDrawingBuffer` is now on the shared canvas. Verified: 51 KB `image/png` clipboard item, note confirmed. _2026-11-20_
+- [x] `ui` **Guest-first saves** — a signed-out visitor keeps up to 20 programs in `algo3d:saves.v1`, badged “this device”, with the device-only warning in both the drawer and the save popover; star, rename and delete work locally. Signing in still does not migrate them (see P2). _2026-11-20_
+- [x] `editor` **Run errors surface on their line** — the failing line is marked in the gutter and the highlight, and the message is pinned under the editor as well as in the console, so “broken app” reads as “my bug”. _2026-11-20_
+- [x] `platform` **Addressable lab state + step links** — `?sample=` and `?step=` (plus `?lang=` when it is not the default) follow a debounced `replaceState`, a playbar link button copies the current step, and section changes push history so Back walks the sections you visited. This also closes the old “permalink to a step” item. _2026-11-20_
 - [x] `lang` **Java library parity** — a 66-program capability probe (String, StringBuilder, Arrays, Collections, List, Map/Set, streams, Optional, Comparator, Math, Integer, Character, Objects, plus language features) failed 35 times; it now passes 66/66. Fixed wrong answers as well as missing methods: `indexOf`/`lastIndexOf` ignored their from-index, `replaceAll` was a literal replace, `split` dropped Java's limit tail, `compareTo` returned a sign instead of the char difference, `Arrays.sort/fill` ignored range overloads, `List.remove(Object)` removed by index, `Comparator.naturalOrder()` sorted nothing, `String.valueOf(char[])` printed an object ref, and `double`-returning methods printed `9`. Added `subList`/`toArray`/`subList`, TreeMap/TreeSet navigation, `Optional.ofNullable/map/filter/or`, `Math.signum/hypot/atan2`, `Character.isWhitespace` and friends, `Objects.isNull`, enum-declared methods, and classes extending built-in exceptions. Parser: bitwise/shift operators, `~`, labelled loops, generic methods, `final` locals, `String[]::new`, `instanceof` with an interface. 15 of them are pinned in `npm run verify`. `ae56b97`
 
 - [x] `lang` **Standard input for Java** — `Scanner` now works through a shared `Stdin` buffer (`next`, `nextLine`, `nextInt`, `nextLong`, `nextDouble`, `nextBoolean`, `hasNext*`, `close`), a standard-input box in the Inputs panel, a preloaded “Console input” sample, and four new checks in `npm run verify`. `4b27af7`
