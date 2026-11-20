@@ -5,11 +5,23 @@ import { Scene } from './three/Scene';
 import { JavaCode } from './components/JavaCode';
 import { StepLog, type LogEntry } from './components/StepLog';
 import { panelVars, startResize, syncCanvases } from './components/panels';
+import { onUrlChange, readUrl, writeUrl } from './urlstate';
 
 const BASE_MS = 820;
 
+/** a shared link can name the step, so it opens where it was sent */
+function linkedStep(): number | null {
+  const raw = Number(readUrl().step);
+  return Number.isFinite(raw) && raw > 0 ? Math.max(0, Math.trunc(raw)) : null;
+}
+
 export function Library() {
-  const [topicId, setTopicId] = useState(TOPICS[0].id);
+  // `?topic=matrix` is what makes "open this exact view" a link instead of a
+  // description: the topic is read on mount and written back as you browse
+  const [topicId, setTopicId] = useState(() => {
+    const wanted = readUrl().topic;
+    return TOPICS.find((t) => t.id === wanted)?.id ?? TOPICS[0].id;
+  });
   const topic = TOPICS.find((t) => t.id === topicId) ?? TOPICS[0];
 
   const [paramsMap, setParamsMap] = useState<Record<string, any>>(() =>
@@ -19,7 +31,9 @@ export function Library() {
 
   const program = useMemo<Program>(() => topic.build(params), [topic, params]);
 
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => linkedStep() ?? 0);
+  /** the step a link asked for, held until the first program exists to clamp it */
+  const pendingStep = useRef<number | null>(linkedStep());
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [selected, setSelected] = useState<Selected | null>(null);
@@ -61,8 +75,16 @@ export function Library() {
   useEffect(() => {
     if (lastProgram.current === program) return;
     lastProgram.current = program;
-    setIndex(0);
-    setPlaying(program.steps.length > 1);
+    const jump = pendingStep.current;
+    pendingStep.current = null;
+    if (jump !== null) {
+      // a shared link lands on its step and stays put; it was sent to be read
+      setIndex(Math.max(0, Math.min(jump, program.steps.length - 1)));
+      setPlaying(false);
+    } else {
+      setIndex(0);
+      setPlaying(program.steps.length > 1);
+    }
     setSelected(null);
   }, [program]);
 
@@ -87,6 +109,30 @@ export function Library() {
 
   // animation timing follows playback speed so swaps finish before the next step
   const animMs = Math.round(Math.max(200, Math.min(560, (BASE_MS / speed) * 0.62)));
+
+  // the address bar names the topic and the step, so a refresh or a pasted link
+  // lands on the same view; the first topic is the default and keeps it short
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      writeUrl({
+        topic: topic.id === TOPICS[0].id ? undefined : topic.id,
+        step: safe > 0 ? String(safe) : undefined,
+      });
+    }, 220);
+    return () => window.clearTimeout(id);
+  }, [topic.id, safe]);
+
+  // Back/Forward between library views without a full page load
+  useEffect(
+    () =>
+      onUrlChange((state) => {
+        const wanted = TOPICS.find((t) => t.id === state.topic);
+        if (wanted) setTopicId(wanted.id);
+        const step = Number(state.step);
+        if (Number.isFinite(step) && step > 0) setIndex(Math.max(0, Math.trunc(step)));
+      }),
+    []
+  );
 
   const logEntries = useMemo<LogEntry[]>(
     () => program.steps.slice(0, safe + 1).map((entry) => ({ note: entry.note, line: entry.line })),

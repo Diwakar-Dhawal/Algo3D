@@ -3901,3 +3901,25 @@ button {
     text-align: center;
   }
 }
+
+/* ---------------------------------------------------------------- a11y -- */
+/* Keyboard focus is visible on every control, in both themes. Components that
+   draw their own ring still win: this only fills the gaps (icon buttons, tabs,
+   canvases reachable with Tab) and stays quiet for a mouse click. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* announced by a screen reader, never drawn */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

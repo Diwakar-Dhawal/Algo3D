@@ -25,6 +25,41 @@ const LANG_LABEL: Record<string, string> = {
   cpp: 'C++',
 };
 
+/** the extension the language would really use on disk */
+const LANG_EXT: Record<string, string> = {
+  java: 'java',
+  python: 'py',
+  javascript: 'js',
+  cpp: 'cpp',
+};
+
+/** `Two Sum` in Python becomes `Two-Sum.py`, safe on every filesystem */
+function fileName(save: Save): string {
+  const base = save.title
+    // a date in the title is common ("Java · 11/21/2026"): slashes become dashes
+    // rather than disappearing into "Java-11212026"
+    .replace(/[/\\:]+/g, '-')
+    .replace(/[^\w\- ]+/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 60);
+  return `${base || 'program'}.${LANG_EXT[save.language] ?? 'txt'}`;
+}
+
+/** a save you can keep outside this app: the const program as a real source file */
+function downloadSave(save: Save): void {
+  const url = URL.createObjectURL(new Blob([save.code], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName(save);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // the download starts from the href; revoking straight away can cancel it
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 function when(iso: string): string {
   const then = new Date(iso).getTime();
   if (!Number.isFinite(then)) return '';
@@ -394,6 +429,13 @@ export function SavedDrawer({ open, onClose, current, onLoad, onDeleted }: Props
                             ✏ {save.board.length} shapes
                           </span>
                         ) : null}
+                      </button>
+                      <button
+                        className="save-edit"
+                        onClick={() => downloadSave(save)}
+                        title={`Download ${fileName(save)}`}
+                      >
+                        ⤓
                       </button>
                       <button className="save-edit" onClick={() => startEdit(save)} title="Edit name and description">
                         ✎

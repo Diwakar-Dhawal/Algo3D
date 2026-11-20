@@ -23,7 +23,7 @@ _(none open)_
 
 ## P1 — next up
 
-- [ ] `library` **Topic and board in the URL** — the lab is addressable (`?sample=&step=`) but `?mode=library` still opens the default topic and a board has no id in the address, so “open this exact matrix” does not work yet. _S_
+- [ ] `library` **Board in the URL** — the library half of "topic and board in the URL" shipped (see Done), but a whiteboard still has no id in the address, so “open this exact board” does not work yet. _S_
 - [ ] `lang` **Wire the other modes onto the stdin buffer** — Python `input()`, C++ `cin >>`, JS `readline()` can all map onto `src/lang/stdin.ts` (the Java side already reads it); needs translator support plus showing the input box for those modes. _M_
 - [ ] `rooms` **Sync the standard-input buffer into rooms** — `RoomState` carries code and inputs only, so a joiner keeps their own stdin text. _S_
 - [ ] `viz` **Auto-pick a topic view for user code** — detect arrays, grids, linked lists and trees in the trace and render the matching 3D topic view in the lab instead of only heap cards. _L_
@@ -33,9 +33,9 @@ _(none open)_
 
 ## P2 — improvements
 
-- [ ] `editor` Inline "what this visualizer runs" reference generated from the interpreter/translator tables. _S_ — surface the same table from the Help sheet (“What can this run?”), since that is where people ask it.
+- [ ] `editor` **“What can this run?” in the Help sheet**, generated from the interpreter/translator tables. _S_ — the inline one-line subset already ships under the editor (`LANGS[].subset`); what is missing is the same table where people ask for it.
 - [ ] `editor` Find & replace in the code editor (`Ctrl/Cmd + F`). _M_
-- [ ] `editor` Bracket matching and auto-indent on Enter. _S_
+- [ ] `editor` **Bracket matching** in the editor — auto-indent on Enter and Tab/Shift+Tab indent ship already (`b831904`, see Done); only matching-highlight of the bracket under the caret is missing. _S_
 - [ ] `runtime` Expected-vs-actual output diff for a program with known output. _M_
 - [ ] `runtime` Saved run history per program. _M_
 - [ ] `runtime` Per-step cost hint (comparisons/swaps/writes). _S_
@@ -46,18 +46,14 @@ _(none open)_
 - [ ] `library` Explain a topic's complexity, not just tag it. _S_
 - [ ] `saves` **Bring device saves into the account on sign-in** — programs saved while signed out stay in the browser; there is no upload or merge step. _S_
 - [ ] `saves` Folders or tags for saved programs. _M_
-- [ ] `saves` Export a save as a real file (`Solution.java`, `solution.py`, …). _S_
 - [ ] `saves` Version history and a diff between revisions. _L_
 - [ ] `rooms` **Realtime outside the local server** — the room socket lives in `scripts/ws-server.ts`, which Vercel's request-scoped functions cannot host, so a deployed tab falls back to polling at the old cadence. Pick either a node host for `api/` or a hosted realtime service and point `src/rooms/socket.ts` at it. _M_
-- [ ] `rooms` Shared playback position (follow the host's step). _M_
 - [ ] `rooms` Cursor/selection presence. _M_
 - [ ] `rooms` In-room chat. _M_
 - [ ] `board` Import a saved program as a text node. _S_
 - [ ] `lang` C++: `std::sort/min/max/swap`, then `pair`, `vector<string>`, `map`/`set`. _M_
 - [ ] `lang` **Java: numeric printing parity** — `double`/`float` use JavaScript's number formatting, so `1e10` prints `10000000000` instead of `1.0E10` and `-0.0`/`NaN`/`Infinity` are wrong. Needs Java's `Double.toString` rules in `str()`. _S_
 - [ ] `lang` **Java: library tail** — `Collections.shuffle`, `BigInteger`, `Scanner.useDelimiter`, enum constructors/fields, `String.formatted`/`indent`, `Stream.summarizingInt`. _M_
-- [ ] `platform` `aria-live` announcements for new console output. _S_
-- [ ] `platform` Visible focus rings across every control. _S_
 - [ ] `platform` Offline read-only mode (service worker) for the library. _L_
 
 - [ ] `ui` **Command palette (`Ctrl/Cmd + K`)** over modes, all 7 topics, samples, saved programs, theme and Run — promoted from P3 because seven topics plus nine samples is already past what a dropdown should hold, and the phone header is a menu. _M_
@@ -82,6 +78,18 @@ _(none open)_
 ## Done
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
+
+- [x] `library` **A library view is a link** — `?topic=matrix&step=6` opens Matrices at step 6, because the topic is read from the address on mount, written back as you browse (debounced, `replaceState`, first topic left out so a plain visit keeps a clean URL) and followed on Back/Forward. A linked view lands on its step and stays paused instead of scrolling on; switching topic resets to the first step and drops `step` from the address. The board half of the old item is still open. Verified in the browser: the link opened Matrices 7/22, a topic switch rewrote `?topic=graph`, and the default topic wrote `?mode=library` alone. _2026-11-20 · `HASH`_
+
+- [x] `saves` **A save leaves the app as a real source file** — every row in Saved codes (device-only and account alike) has a download button that writes the program as `Two-Sum.py`, `Java-11-21-2026.java`, … using the language's own extension; the title is sanitized (slashes in a date become dashes instead of vanishing) and the object URL is revoked after the download starts, not before. Verified: the button appears with the right filename for a device save. _2026-11-20 · `HASH`_
+
+- [x] `platform` **Console output is announced, not just drawn** — a 1×1 `role="status"` `aria-live="polite"` region carries only the newest output line, so a screen reader hears each new line once instead of the whole buffer again on every step. Verified: stepping to the end announced exactly `1 2 3 5 7 9`. _2026-11-20 · `HASH`_
+
+- [x] `platform` **Focus is visible on every control** — a global `:where(a, button, input, textarea, select, [tabindex]):focus-visible` rule draws the gold ring for keyboard use and stays quiet for a mouse click; components with their own ring still win. Verified: Tab from the playbar lands on ↺ with `:focus-visible` matched and a solid gold outline. _2026-11-20 · `HASH`_
+
+- [x] `editor` **Auto-indent on Enter and Tab indent were already shipped** — this closes an item that had been sitting open under the wrong name: `b831904` added Enter auto-indent (including the outdent after a closing brace), Tab/Shift+Tab line indent and a no-op-safe selection handling. Found while auditing the checklist; the item above now covers only the half that is really missing. _2026-11-20 · noted_
+
+- [x] `rooms` **The room follows the playhead** — every step of a room playback is pushed and, since the room socket landed, pushed immediately instead of on the next poll; a joiner's tab adopts the shared `index` on its own (the `dd1ae3e` guard keeps it from rewriting the buffer). This item was still listed as open after that shipped. _2026-11-20 · noted_
 
 - [x] `rooms` **The room lifecycle and the room socket have tests** — `npm run api:smoke` now checks the new `rooms.last_active_at` / `rooms.closed_at` columns and the idle index, and with `CLERK_TEST_TOKEN` it walks a whole room against the real database: create, a code/step push published on `room:<id>`, a board save published, a rename published as a member change, activity recorded, the idle sweep closing an aged room and publishing that, a poll answering `{ closed: true }`, reopening with the work intact, delete. New `npm run ws:check` covers the bridge itself: bad token closed 4401, an upgrade on another path refused, an unauthenticated `join` answered with nothing. Writing these found a bug in the test harness that made **every** signed-in smoke run hang silently: `makeReq` fired the request-body events on the next tick, before a signed-in handler had awaited its session, so `readBody` waited for an `end` that had already gone by; the body is delivered now that something is listening. Checked here with a full-stack run of the same handlers behind a stubbed Clerk session (socket join, state and board pushes received, a non-member refused); the committed commands are `npm run api:smoke` and `npm run ws:check`. _2026-11-20 · `003bc2c`_
 

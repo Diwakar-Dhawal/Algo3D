@@ -450,6 +450,9 @@ export function CodeLab({
   const step = steps[safe];
   const atStart = safe <= 0;
   const atEnd = safe >= total - 1;
+  // only the newest line is announced: reading the whole buffer again on every
+  // step would bury a screen reader in output it has already heard
+  const newestLine = step?.stdout ? (step.stdout.replace(/\n$/, '').split('\n').pop() ?? '') : '';
 
   // the address bar always names what is on screen, so a refresh — or a link
   // pasted into a study group — lands on the same program and step
@@ -1196,6 +1199,9 @@ export function CodeLab({
               ) : null}
             </div>
           </div>
+          <p className="sr-only" role="status" aria-live="polite">
+            {newestLine}
+          </p>
           <pre className="console" ref={outputRef}>
             {step?.stdout ? step.stdout : 'System.out output appears here as it happens.'}
           </pre>
