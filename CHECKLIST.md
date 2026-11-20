@@ -73,8 +73,8 @@ _Nothing known._
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
 
-- [x] `ui` **Mobile section navigation moved to a fixed bottom bar** — `Code / Library / Whiteboard` pins to the bottom below 760 px, with the pane area padded so nothing hides under it. `c57fd2f`
-- [x] `saves` **Saved-codes search box was stretching** — `.drawer-input` has `flex: 1`, so the search field grew to fill the drawer; it is now `flex: 0 0 auto` at 34 px (measured 34 px in the drawer). `c57fd2f`
+- [x] `ui` **Mobile section navigation moved to a fixed bottom bar** — `Code / Library / Whiteboard` pins to the bottom below 760 px, with the pane area padded so nothing hides under it. `8940a11`
+- [x] `saves` **Saved-codes search box was stretching** — `.drawer-input` has `flex: 1`, so the search field grew to fill the drawer; it is now `flex: 0 0 auto` at 34 px (measured 34 px in the drawer). `8940a11`
 - [x] `ui` **Help sheet ignored the light theme** — replaced a hardcoded `--bg` fallback with `var(--card)`, and themed the `kbd` chips. `f9177f5`
 - [x] `ui` **Matrices had a black backing plane** — the fixed navy plate is now a theme `plate` colour from `STAGE`. `f9177f5`
 - [x] `ui` **Section nav aligned right** beside the account cluster instead of floating after the brand. `f9177f5`
