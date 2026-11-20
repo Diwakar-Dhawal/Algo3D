@@ -111,6 +111,15 @@ export function Library() {
         ))}
       </nav>
 
+      <div className="lib-toolbar">
+        <div className="lib-toolbar-head">
+          <span className="eyebrow">{topic.tag}</span>
+          <h2 className="lib-toolbar-title">{topic.label}</h2>
+          <p className="lib-toolbar-blurb">{topic.blurb}</p>
+        </div>
+        <Controls params={params} setParams={setParams} />
+      </div>
+
       <main className="main" style={panelVars({ '--right-w': `${rightHidden ? 44 : right}px` })}>
         <section className="stage-wrap">
           <div className="stage" ref={stageRef}>
@@ -201,7 +210,6 @@ export function Library() {
               <span className="eyebrow">{topic.tag}</span>
             </div>
             <p className="blurb">{topic.blurb}</p>
-            <Controls params={params} setParams={setParams} />
           </div>
 
           <div className="panel code-card">

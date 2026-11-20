@@ -7,6 +7,7 @@ import { RoomsProvider, useRooms } from './rooms/RoomContext';
 import { RoomsDrawer } from './rooms/RoomsDrawer';
 import { ThemeProvider, ThemeToggle } from './theme/ThemeContext';
 import { PaneBoundary } from './components/PaneBoundary';
+import { ShortcutSheet } from './components/Shortcuts';
 
 /** the library and the whiteboard (with excalidraw) only load when you open them */
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })));
@@ -77,6 +78,7 @@ function Shell() {
   const [mode, setMode] = useState<Mode>(readMode);
   const [inviteCode] = useState(() => new URLSearchParams(window.location.search).get('room') ?? '');
   const [roomsOpen, setRoomsOpen] = useState(() => inviteCode.length > 0);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { active } = useRooms();
   const roomId = active?.room.id ?? null;
 
@@ -121,6 +123,14 @@ function Shell() {
         </nav>
 
         <ThemeToggle />
+        <button
+          className="icon-btn help-btn"
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          onClick={() => setShortcutsOpen(true)}
+        >
+          ?
+        </button>
         <RoomsButton onOpen={() => setRoomsOpen(true)} />
         <Account />
       </header>
@@ -143,6 +153,7 @@ function Shell() {
       </PaneBoundary>
 
       <RoomsDrawer open={roomsOpen} onClose={() => setRoomsOpen(false)} initialCode={inviteCode} />
+      <ShortcutSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }

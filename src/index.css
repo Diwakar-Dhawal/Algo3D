@@ -1058,6 +1058,53 @@ button {
   white-space: nowrap;
 }
 
+/* ---------------- library toolbar (options just below the topic tabs) ---------------- */
+
+.lib-toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 24px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bar);
+}
+
+.lib-toolbar-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+}
+
+.lib-toolbar-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lib-toolbar-blurb {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.lib-toolbar .ctrl {
+  flex: 1;
+  min-width: 260px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.lib-toolbar .ctrl .field {
+  flex: 1;
+  min-width: 150px;
+}
+
 /* ---------------- library controls ---------------- */
 
 .ctrl {
@@ -3263,6 +3310,8 @@ button {
 
 .drawer-search {
   margin-top: 10px;
+  height: 34px;
+  box-sizing: border-box;
 }
 
 /* ---- respect a user who asked for less movement ---- */
