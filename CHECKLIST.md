@@ -67,7 +67,7 @@ _(none open)_
 - [ ] `runtime` **“Predict the next step” practice mode** — show the array at step N, ask what changes or what prints, then reveal. The one retention loop VisuAlgo and Python Tutor do not have. _L_
 - [ ] `platform` **Instrument the basic funnel** (open → sample picked → Run → step 10 → signed in); there is no measurement today, so “where people leave” is a guess. _S_
 - [ ] `platform` **Embed a topic at a step** (`<iframe>`) — how a teacher adopts a tool and brings a class. _M_
-- [ ] `platform` **Submit the site to Google Search Console** — the one step no code can do: add the property with the owner's Google account, verify it, submit `/sitemap.xml` and ask for indexing of `/`. Until then the head tags and the sitemap are only an invitation. _S_
+- [ ] `platform` **Submit the site to Google Search Console** — the one step no code can do: add `https://algo3-d.vercel.app/` as the property with the owner's Google account (the `http://` address only 308-redirects, so verify the https one), confirm it with the file below, then submit `sitemap.xml` and ask for indexing of `/`. Until then the head tags and the sitemap are only an invitation. _S_
 - [ ] `lang` **C support** — the visualiser runs Java, Python, JavaScript and C++; a search for a C code visualiser cannot honestly be answered until C is one of the four, and the metadata deliberately does not claim it. _L_
 
 ## P3 — nice to have
@@ -84,6 +84,8 @@ _(none open)_
 ## Done
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
+
+- [x] `platform` **Google can prove the deployment is ours** — `public/google5def4c39df1a4e4.html` holds the single line Google's HTML-file method looks for (`google-site-verification: google5def4c39df1a4e4.html`), and Vite copies `public/` into `dist/`, so it is served from the site root. Verified: `npm run build` 0 and `dist/google5def4c39df1a4e4.html` contains exactly that line. Not verified: reaching it on the deployment — the live site still serves the build from before the SEO work (`/robots.txt` answers 404), so the file, the sitemap and the new head all appear only after the next deploy. _2026-11-21 · `HASH`_
 
 - [x] `platform` **The site tells search engines what it is** — the head now says “code visualiser” in the places that matter: title `Algo3D — Code Visualiser for DSA in 3D`, a description naming Java, Python, JavaScript and C++ and what is drawn, a canonical URL, `robots` meta, Open Graph and Twitter card, and JSON-LD `SoftwareApplication` (free, any browser, WebGL) so a result can read as software. `index.html` also carries a `<noscript>` summary with a real heading and copy, so a crawler that does not run the app still finds words about it. `/robots.txt` and `/sitemap.xml` are served by `api/seo.ts`, rewritten in `vercel.json`, and built from the request's own host — the sitemap names whatever origin the site is deployed on instead of a domain baked into a file that would rot. Verified: the function returned a valid `urlset` and `text/plain` robots through a local harness; `tsc` 0; `npm run build` 0 with the new head present in `dist/index.html`. Not verified: how Google actually treats it — nothing is deployed from here and no crawl has run. _2026-11-21 · `9bddc02`_
 
