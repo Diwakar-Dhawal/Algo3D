@@ -67,6 +67,8 @@ _(none open)_
 - [ ] `runtime` **“Predict the next step” practice mode** — show the array at step N, ask what changes or what prints, then reveal. The one retention loop VisuAlgo and Python Tutor do not have. _L_
 - [ ] `platform` **Instrument the basic funnel** (open → sample picked → Run → step 10 → signed in); there is no measurement today, so “where people leave” is a guess. _S_
 - [ ] `platform` **Embed a topic at a step** (`<iframe>`) — how a teacher adopts a tool and brings a class. _M_
+- [ ] `platform` **Submit the site to Google Search Console** — the one step no code can do: add the property with the owner's Google account, verify it, submit `/sitemap.xml` and ask for indexing of `/`. Until then the head tags and the sitemap are only an invitation. _S_
+- [ ] `lang` **C support** — the visualiser runs Java, Python, JavaScript and C++; a search for a C code visualiser cannot honestly be answered until C is one of the four, and the metadata deliberately does not claim it. _L_
 
 ## P3 — nice to have
 
@@ -82,6 +84,8 @@ _(none open)_
 ## Done
 
 Newest first. Keep the commit hash — it is how the next agent verifies the claim.
+
+- [x] `platform` **The site tells search engines what it is** — the head now says “code visualiser” in the places that matter: title `Algo3D — Code Visualiser for DSA in 3D`, a description naming Java, Python, JavaScript and C++ and what is drawn, a canonical URL, `robots` meta, Open Graph and Twitter card, and JSON-LD `SoftwareApplication` (free, any browser, WebGL) so a result can read as software. `index.html` also carries a `<noscript>` summary with a real heading and copy, so a crawler that does not run the app still finds words about it. `/robots.txt` and `/sitemap.xml` are served by `api/seo.ts`, rewritten in `vercel.json`, and built from the request's own host — the sitemap names whatever origin the site is deployed on instead of a domain baked into a file that would rot. Verified: the function returned a valid `urlset` and `text/plain` robots through a local harness; `tsc` 0; `npm run build` 0 with the new head present in `dist/index.html`. Not verified: how Google actually treats it — nothing is deployed from here and no crawl has run. _2026-11-21 · `HASH`_
 
 - [x] `platform` **`api:smoke` runs its signed-in half without a pasted token** — the half that needed `CLERK_TEST_TOKEN` (saves, stars, streak, a whole room) now always runs: the npm script bundles `@clerk/backend` to `scripts/clerk-test-stub.ts`, which resolves a `test:<clerk_user_id>` identity against real rows and hands every other token to the real SDK, so “garbage bearer token is 401” still exercises Clerk itself. The run creates its own account, and deletes it — with its saves, activity and rooms — at the end, so the suite is self-cleaning and CI-runnable. A real session still wins by setting `CLERK_TEST_TOKEN`. Why it mattered: this half silently skipped for everyone, which is how a harness bug that swallowed every signed-in run lived there for months. Verified: `npm run api:smoke` with no token → 53/53, including the test-account cleanup check; `tsc` 0. Not verified: minting a genuine Clerk session headless — a development instance needs the browser's ticket exchange, which is exactly why the identity is local. _2026-11-20 · `c479d73`_
 

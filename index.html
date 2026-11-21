@@ -7,8 +7,50 @@
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="mask-icon" href="/logo.svg" color="#b08d57" />
-    <meta name="description" content="Step Java, Python, JavaScript and C++ programs through in three dimensions." />
-    <title>Algo3D — DSA Visualizer</title>
+    <meta
+      name="description"
+      content="A free code visualiser in 3D: run Java, Python, JavaScript or C++ step by step and watch arrays, stacks, queues, lists, trees and graphs change as the code runs."
+    />
+    <title>Algo3D — Code Visualiser for DSA in 3D</title>
+    <link rel="canonical" href="/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="application-name" content="Algo3D" />
+
+    <!-- what a shared link looks like; the site is one page, so one preview -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Algo3D — Code Visualiser for DSA in 3D" />
+    <meta
+      property="og:description"
+      content="Run Java, Python, JavaScript or C++ step by step and watch the data structure change in three dimensions. Free, in the browser, nothing to install."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Algo3D — Code Visualiser for DSA in 3D" />
+    <meta
+      name="twitter:description"
+      content="Run Java, Python, JavaScript or C++ step by step and watch the data structure change in three dimensions."
+    />
+
+    <!-- says what the app is, so a search result can show it as software -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Algo3D",
+        "alternateName": "Algo3D code visualiser",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Any web browser",
+        "browserRequirements": "Requires JavaScript and WebGL",
+        "description": "A code visualiser for data structures and algorithms: run Java, Python, JavaScript or C++ step by step and watch arrays, stacks, queues, linked lists, trees and graphs in 3D.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "featureList": [
+          "Step through code line by line",
+          "3D views of arrays, stacks, queues, linked lists, trees and graphs",
+          "Java, Python, JavaScript and C++ input",
+          "Shareable links to a topic and step"
+        ]
+      }
+    </script>
     <script>
       (function () {
         try {
@@ -28,6 +70,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- crawlers that do not run the app still get a description of it -->
+    <noscript>
+      <main style="max-width: 42rem; margin: 3rem auto; padding: 0 1.5rem; font: 16px/1.6 system-ui, sans-serif">
+        <h1>Algo3D — a code visualiser for data structures and algorithms</h1>
+        <p>
+          Algo3D runs Java, Python, JavaScript and C++ in the browser and shows every step in three
+          dimensions: arrays and matrices as bars and grids, stacks and queues as towers, linked lists
+          and trees as nodes, graphs as a force layout.
+        </p>
+        <p>
+          Paste a program, press Run, then step forward and back through comparisons, swaps and
+          assignments, with the call stack and variables beside the scene. Nothing to install, and no
+          account is needed to try it.
+        </p>
+        <p>Algo3D needs JavaScript to draw the scene — enable it to use the visualiser.</p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
