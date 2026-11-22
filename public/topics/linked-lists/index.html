@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Linked list visualiser in 3D — insert, delete, traverse | Algo3D</title>
+    <meta
+      name="description"
+      content="Nodes in 3D chained by next pointers: insert at the head, walk to the tail, delete by value, and watch cur hop from node to node. Free, in the browser, nothing to install."
+    />
+    <link rel="canonical" href="/topics/linked-lists/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Linked list visualiser in 3D — Algo3D" />
+    <meta
+      property="og:description"
+      content="Insert, delete and traverse a singly linked list, with each next pointer drawn in 3D."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/linked-lists/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Linked list visualiser",
+            "item": "https://algo3-d.vercel.app/topics/linked-lists/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=list">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/">Matrices</a>
+      <a href="/topics/stacks/">Stacks</a>
+      <a href="/topics/queues/">Queues</a>
+      <a href="/topics/linked-lists/" aria-current="page">Linked lists</a>
+      <a href="/topics/binary-search-trees/">Binary search trees</a>
+      <a href="/topics/graphs/">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Linked lists · nodes · next pointers</p>
+      <h1>Linked list visualiser in 3D</h1>
+      <p class="lead">
+        An array puts its values next to each other in memory; a linked list does not. Algo3D draws
+        the nodes as separate blocks joined by <code>next</code> pointers, so the part that actually
+        makes a list work — the link you have to re-point — is the part you can see.
+      </p>
+
+      <div class="cta">
+        <p>Open the linked-list view and insert, delete and traverse a few nodes.</p>
+        <a class="btn" href="/?mode=library&amp;topic=list">Run the linked-list view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>One block per node, holding its value, with an edge to the next node and a clear end where <code>null</code> lives.</li>
+        <li><code>head</code> is named, because losing it loses the list.</li>
+        <li>Inserting at the head creates a node and points it at the old head; inserting at the tail walks <code>cur</code> to the end first.</li>
+        <li>Deleting finds the node before the target and re-points its <code>next</code>, so the removed block leaves without anything shifting.</li>
+        <li>The traversal program moves <code>cur</code> along the chain one hop per step, which is the loop that every other list operation is built on.</li>
+      </ul>
+
+      <h2>The cost of each operation</h2>
+      <table>
+        <thead>
+          <tr><th>Operation</th><th>What happens</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Insert at head</td><td>New node points at the old head</td><td>O(1)</td></tr>
+          <tr><td>Insert at tail</td><td>Walk to the last node, then link</td><td>O(n)</td></tr>
+          <tr><td>Delete by value</td><td>Walk to the node before it, then unlink</td><td>O(n)</td></tr>
+          <tr><td>Get the i-th value</td><td>Follow <code>next</code> i times</td><td>O(n) — no indexing</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Compared with an array, that last row is the trade: reading a position becomes a walk, and
+        inserting or removing a node becomes a pointer change instead of a shift.
+      </p>
+
+      <h2>The code that runs</h2>
+      <pre><code>class Node {
+    int value;
+    Node next;
+    Node(int value) { this.value = value; }
+}
+
+Node insertHead(Node head, int v) {
+    Node n = new Node(v);
+    n.next = head;          // the old head hangs off the new node
+    return n;
+}
+
+Node insertTail(Node head, int v) {
+    Node n = new Node(v);
+    if (head == null) return n;
+    Node cur = head;
+    while (cur.next != null) cur = cur.next;
+    cur.next = n;
+    return head;
+}
+
+Node delete(Node head, int v) {
+    if (head == null) return null;
+    if (head.value == v) return head.next;              // deleting the head
+    Node cur = head;
+    while (cur.next != null &amp;&amp; cur.next.value != v) cur = cur.next;
+    if (cur.next != null) cur.next = cur.next.next;     // unlink
+    return head;
+}</code></pre>
+      <p>
+        The two early returns in <code>delete</code> are the two cases people forget: an empty list,
+        and the node you wanted being the head.
+      </p>
+
+      <h2>Why the picture matters here</h2>
+      <p>
+        Every linked-list bug is a pointer bug: a link that was overwritten before its value was
+        used, a <code>next</code> that was never checked for <code>null</code>, or a node that is
+        still reachable from nothing. In a console those bugs leave no trace at all. As blocks and
+        edges, a lost chain is immediately visible, and so is the moment <code>cur</code> leaves the
+        list.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/binary-search-trees/"><b>Binary search trees</b><span>Two pointers per node instead of one</span></a>
+        </li>
+        <li>
+          <a href="/topics/stacks/"><b>Stacks</b><span>A list you only use at the head</span></a>
+        </li>
+        <li>
+          <a href="/topics/arrays/"><b>Arrays &amp; sorting</b><span>The contiguous alternative</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/arrays/">Arrays</a> ·
+          <a href="/topics/matrices/">Matrices</a> ·
+          <a href="/topics/stacks/">Stacks</a> ·
+          <a href="/topics/queues/">Queues</a> ·
+          <a href="/topics/binary-search-trees/">BSTs</a> ·
+          <a href="/topics/graphs/">Graphs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

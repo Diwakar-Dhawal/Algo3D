@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stack visualiser in 3D — push, pop and LIFO | Algo3D</title>
+    <meta
+      name="description"
+      content="An array-backed stack drawn as a tower of 3D plates: push, pop and peek change only the top, so last in is first out. Step it one operation at a time, free in the browser."
+    />
+    <link rel="canonical" href="/topics/stacks/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Stack visualiser in 3D — Algo3D" />
+    <meta
+      property="og:description"
+      content="Push, pop and peek on an array-backed stack, drawn as a tower of plates in 3D."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/stacks/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Stack visualiser",
+            "item": "https://algo3-d.vercel.app/topics/stacks/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=stack">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/">Matrices</a>
+      <a href="/topics/stacks/" aria-current="page">Stacks</a>
+      <a href="/topics/queues/">Queues</a>
+      <a href="/topics/linked-lists/">Linked lists</a>
+      <a href="/topics/binary-search-trees/">Binary search trees</a>
+      <a href="/topics/graphs/">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Stacks · LIFO · push and pop</p>
+      <h1>Stack visualiser in 3D</h1>
+      <p class="lead">
+        A stack has one end that matters. Algo3D shows that literally: the array is a tower of
+        plates, and <code>push</code>, <code>pop</code> and <code>peek</code> only ever touch the
+        plate on top. The last value in is the first value out, and the scene never lets you forget
+        it.
+      </p>
+
+      <div class="cta">
+        <p>Open the stack view and add, remove and peek a few values.</p>
+        <a class="btn" href="/?mode=library&amp;topic=stack">Run the stack view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>Each value is a plate in a vertical tower, with its slot index printed beside it.</li>
+        <li>A push drops a new plate onto the top; a pop lifts the top plate away, and everything below it stays exactly where it was.</li>
+        <li>The top plate is highlighted, because that is the only one any operation can reach.</li>
+        <li>The step note reports the returned value for <code>pop</code> and <code>peek</code>, so the difference between removing and looking is explicit.</li>
+        <li>The code panel follows the same trace, so the line <code>return data[--size]</code> is highlighted at the moment the plate leaves.</li>
+      </ul>
+
+      <h2>The cost of each operation</h2>
+      <table>
+        <thead>
+          <tr><th>Operation</th><th>What happens</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>push(v)</code></td><td>Writes <code>data[size]</code> and increments <code>size</code></td><td>O(1)</td></tr>
+          <tr><td><code>pop()</code></td><td>Decrements <code>size</code> and returns the old top</td><td>O(1)</td></tr>
+          <tr><td><code>peek()</code></td><td>Returns <code>data[size - 1]</code> without changing it</td><td>O(1)</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Every operation is constant time because nothing is ever shifted: the end of the array is the
+        whole data structure.
+      </p>
+
+      <h2>The code that runs</h2>
+      <pre><code>class IntStack {
+    private int[] data = new int[8];
+    private int size = 0;
+
+    void push(int v) {
+        if (size == data.length) throw new IllegalStateException();  // full
+        data[size++] = v;
+    }
+
+    int pop() {
+        if (size == 0) throw new EmptyStackException();              // empty
+        return data[--size];
+    }
+
+    int peek() {
+        if (size == 0) throw new EmptyStackException();
+        return data[size - 1];
+    }
+}</code></pre>
+      <p>
+        Both guard clauses are part of the trace, not decoration: an empty pop or a full push is the
+        most common stack bug, and the scene shows the check running before the operation does.
+      </p>
+
+      <h2>Where a stack shows up next</h2>
+      <p>
+        Recursion is a stack the language keeps for you: every call frame is pushed and popped in the
+        same order. Iterative depth-first search is the same structure written by hand, and the
+        balanced-bracket and undo problems are one <code>push</code> and one <code>pop</code> each.
+        Once this tower makes sense, all of those read the same way.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/queues/"><b>Queues</b><span>The same array, the opposite end</span></a>
+        </li>
+        <li>
+          <a href="/topics/graphs/"><b>Graphs</b><span>DFS is a stack, BFS is a queue</span></a>
+        </li>
+        <li>
+          <a href="/topics/linked-lists/"><b>Linked lists</b><span>Nodes chained by next pointers</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/arrays/">Arrays</a> ·
+          <a href="/topics/matrices/">Matrices</a> ·
+          <a href="/topics/queues/">Queues</a> ·
+          <a href="/topics/linked-lists/">Linked lists</a> ·
+          <a href="/topics/binary-search-trees/">BSTs</a> ·
+          <a href="/topics/graphs/">Graphs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

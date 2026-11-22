@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Array and sorting visualiser in 3D — bubble, selection, insertion | Algo3D</title>
+    <meta
+      name="description"
+      content="Watch bubble, selection and insertion sort plus linear and binary search run on an int[] array in 3D: index pointers, comparisons and swaps drawn as you step. Free, in the browser."
+    />
+    <link rel="canonical" href="/topics/arrays/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Array and sorting visualiser in 3D — Algo3D" />
+    <meta
+      property="og:description"
+      content="Bubble, selection and insertion sort and binary search on an int[] array, drawn step by step in 3D."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/arrays/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Array and sorting visualiser",
+            "item": "https://algo3-d.vercel.app/topics/arrays/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=array">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/" aria-current="page">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/">Matrices</a>
+      <a href="/topics/stacks/">Stacks</a>
+      <a href="/topics/queues/">Queues</a>
+      <a href="/topics/linked-lists/">Linked lists</a>
+      <a href="/topics/binary-search-trees/">Binary search trees</a>
+      <a href="/topics/graphs/">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Arrays · sorting · searching</p>
+      <h1>Array and sorting visualiser in 3D</h1>
+      <p class="lead">
+        An array is a run of neighbouring slots, and almost every off-by-one bug in a loop over one
+        comes from losing track of an index. Algo3D draws the array as a row of 3D tiles, keeps
+        <code>i</code>, <code>j</code>, <code>min</code>, <code>lo</code>, <code>hi</code> and
+        <code>mid</code> on screen as they move, and pauses on every comparison, so you can see the
+        exact step where the order changes.
+      </p>
+
+      <div class="cta">
+        <p>Open the array view and step through a live sort, or paste your own program.</p>
+        <a class="btn" href="/?mode=library&amp;topic=array">Run the array view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>Every slot is a tile with its value on top and its index underneath, so <code>a[3]</code> is a place you can point at.</li>
+        <li>Pointer chips ride above the tile they name, so <code>i</code> and <code>j</code> are never a mental arithmetic exercise.</li>
+        <li>The pair being compared lifts in gold, a swap moves both tiles through the air in rose, and the sorted tail settles in sage.</li>
+        <li>A note under the scene says what just happened in words — “compare a[2] = 9 with a[3] = 1” — beside the matching line of code.</li>
+        <li>Drag to orbit, scroll to zoom, click any tile to inspect its index and value.</li>
+      </ul>
+
+      <h2>Algorithms in the library</h2>
+      <table>
+        <thead>
+          <tr><th>Algorithm</th><th>What it does</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Bubble sort</td><td>Compares neighbours and swaps them until a pass makes no change</td><td>O(n²), O(n) on an already sorted array</td></tr>
+          <tr><td>Selection sort</td><td>Finds the minimum of the unsorted tail and moves it to the front</td><td>O(n²) always</td></tr>
+          <tr><td>Insertion sort</td><td>Lifts each key and shifts the larger values right to make room</td><td>O(n²), O(n) nearly sorted</td></tr>
+          <tr><td>Linear search</td><td>Checks every slot from the start</td><td>O(n)</td></tr>
+          <tr><td>Binary search</td><td>Halves the range with <code>lo</code>, <code>hi</code> and <code>mid</code></td><td>O(log n), sorted input</td></tr>
+        </tbody>
+      </table>
+
+      <h2>The code that runs</h2>
+      <p>
+        The library programs are Java, traced line by line by the interpreter in the browser. This is
+        bubble sort, early-exit included:
+      </p>
+      <pre><code>void bubbleSort(int[] a) {
+    int n = a.length;
+    for (int i = 0; i &lt; n - 1; i++) {
+        boolean swapped = false;
+        for (int j = 0; j &lt; n - 1 - i; j++) {
+            if (a[j] &gt; a[j + 1]) {
+                int tmp = a[j];
+                a[j] = a[j + 1];
+                a[j + 1] = tmp;
+                swapped = true;
+            }
+        }
+        if (!swapped) break;   // nothing moved: the array is sorted
+    }
+}</code></pre>
+      <p>
+        The same view also traces <code>selectionSort</code>, <code>insertionSort</code>,
+        <code>linearSearch</code> and <code>binarySearch</code>, and each one keeps its own index
+        pointers on the scene as the loop turns.
+      </p>
+
+      <h2>Why an array view is worth the screen</h2>
+      <p>
+        Sorting is the first place a beginner meets a nested loop, and a nested loop is the first
+        place “which index is which” stops being obvious. Watching <code>j</code> run up to
+        <code>n - 1 - i</code>, then seeing the range of the inner loop shrink by one after each pass,
+        is the difference between memorising a bound and understanding it.
+      </p>
+      <p>
+        Binary search is the other one: the array doesn’t move at all, only the window does. Seeing
+        <code>lo</code> and <code>hi</code> close in on a value makes the halving obvious, and makes
+        the “why does this need a sorted array” question answer itself.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/matrices/"><b>Matrices</b><span>2D grids, spiral traversal and transpose</span></a>
+        </li>
+        <li>
+          <a href="/topics/binary-search-trees/"><b>Binary search trees</b><span>The same halving idea, on a tree</span></a>
+        </li>
+        <li>
+          <a href="/topics/graphs/"><b>Graphs</b><span>BFS and DFS across vertices</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/matrices/">Matrices</a> ·
+          <a href="/topics/stacks/">Stacks</a> ·
+          <a href="/topics/queues/">Queues</a> ·
+          <a href="/topics/linked-lists/">Linked lists</a> ·
+          <a href="/topics/binary-search-trees/">BSTs</a> ·
+          <a href="/topics/graphs/">Graphs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

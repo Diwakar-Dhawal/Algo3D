@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Queue visualiser in 3D — enqueue, dequeue and FIFO | Algo3D</title>
+    <meta
+      name="description"
+      content="An array-backed queue drawn in 3D with head and tail pointers: enqueue at the rear, dequeue at the front, and see the shifting cost of removing from the front. Free, in the browser."
+    />
+    <link rel="canonical" href="/topics/queues/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Queue visualiser in 3D — Algo3D" />
+    <meta
+      property="og:description"
+      content="Enqueue at the rear, dequeue at the front, and watch an array-backed queue shift its values."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/queues/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Queue visualiser",
+            "item": "https://algo3-d.vercel.app/topics/queues/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=queue">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/">Matrices</a>
+      <a href="/topics/stacks/">Stacks</a>
+      <a href="/topics/queues/" aria-current="page">Queues</a>
+      <a href="/topics/linked-lists/">Linked lists</a>
+      <a href="/topics/binary-search-trees/">Binary search trees</a>
+      <a href="/topics/graphs/">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Queues · FIFO · head and tail</p>
+      <h1>Queue visualiser in 3D</h1>
+      <p class="lead">
+        A queue has two ends and a rule about which one you use. Algo3D draws the slots in a row with
+        <code>head</code> and <code>tail</code> pointing into it: values arrive at the rear, leave
+        from the front, and the first value in is the first value out.
+      </p>
+
+      <div class="cta">
+        <p>Open the queue view and enqueue a few values, then dequeue them.</p>
+        <a class="btn" href="/?mode=library&amp;topic=queue">Run the queue view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>A row of slots with the value in each one, and <code>head</code> / <code>tail</code> marked in the scene.</li>
+        <li>An enqueue slides a new tile in at the rear; a dequeue lifts the front tile out.</li>
+        <li>The shift is drawn, not hidden: on this array-backed queue, removing the front means every remaining value moves one slot left.</li>
+        <li>The step note names the value returned by <code>dequeue</code> and <code>front</code>, so removing and peeking stay distinct.</li>
+        <li>Click a slot to inspect it, and orbit the camera to see the row end-on.</li>
+      </ul>
+
+      <h2>The cost of each operation</h2>
+      <table>
+        <thead>
+          <tr><th>Operation</th><th>What happens</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>enqueue(v)</code></td><td>Writes at <code>tail</code> and increments it</td><td>O(1)</td></tr>
+          <tr><td><code>dequeue()</code></td><td>Reads <code>data[head]</code>, then shifts the rest left</td><td>O(n)</td></tr>
+          <tr><td><code>front()</code></td><td>Reads <code>data[head]</code> and changes nothing</td><td>O(1)</td></tr>
+        </tbody>
+      </table>
+      <p>
+        That O(n) dequeue is the point of the view. A circular buffer or a linked list removes the
+        shift, and the difference is visible here as a cost you can literally watch move.
+      </p>
+
+      <h2>The code that runs</h2>
+      <pre><code>class IntQueue {
+    private int[] data = new int[8];
+    private int head = 0, tail = 0;
+
+    void enqueue(int v) {
+        if (tail == data.length) throw new IllegalStateException();  // full
+        data[tail++] = v;
+    }
+
+    int dequeue() {
+        if (head == tail) throw new NoSuchElementException();        // empty
+        int v = data[head];
+        for (int i = 1; i &lt; tail; i++) data[i - 1] = data[i];        // shift
+        tail--;
+        return v;
+    }
+
+    int front() {
+        return data[head];
+    }
+}</code></pre>
+
+      <h2>Where a queue shows up next</h2>
+      <p>
+        Breadth-first search is a queue with a graph inside it: the frontier is exactly “the things
+        discovered but not yet visited”, which is first-in first-out by definition. Print queues,
+        task schedulers and message buffers are the same shape, and the reason they are fair is the
+        same reason BFS finds the shortest path in an unweighted graph.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/stacks/"><b>Stacks</b><span>Same array, last in first out</span></a>
+        </li>
+        <li>
+          <a href="/topics/graphs/"><b>Graphs</b><span>BFS is a queue over a frontier</span></a>
+        </li>
+        <li>
+          <a href="/topics/linked-lists/"><b>Linked lists</b><span>The O(1) dequeue alternative</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/arrays/">Arrays</a> ·
+          <a href="/topics/matrices/">Matrices</a> ·
+          <a href="/topics/stacks/">Stacks</a> ·
+          <a href="/topics/linked-lists/">Linked lists</a> ·
+          <a href="/topics/binary-search-trees/">BSTs</a> ·
+          <a href="/topics/graphs/">Graphs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

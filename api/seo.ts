@@ -31,17 +31,28 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   res.setHeader('cache-control', 'public, max-age=3600');
 
   if (url.searchParams.get('file') === 'sitemap') {
+    // the app is one screen, but the topic pages under /topics/ are real
+    // documents a crawler can read, so they are listed: long-tail queries
+    // ("binary tree visualiser 3d") are where a new site can actually rank
+    const pages: { path: string; freq: string; priority: string }[] = [
+      { path: '/', freq: 'weekly', priority: '1.0' },
+      { path: '/topics/arrays/', freq: 'monthly', priority: '0.8' },
+      { path: '/topics/matrices/', freq: 'monthly', priority: '0.8' },
+      { path: '/topics/stacks/', freq: 'monthly', priority: '0.8' },
+      { path: '/topics/queues/', freq: 'monthly', priority: '0.8' },
+      { path: '/topics/linked-lists/', freq: 'monthly', priority: '0.8' },
+      { path: '/topics/binary-search-trees/', freq: 'monthly', priority: '0.8' },
+      { path: '/topics/graphs/', freq: 'monthly', priority: '0.8' },
+    ];
+    const urls = pages
+      .map(
+        (page) =>
+          `  <url>\n    <loc>${base}${page.path}</loc>\n    <changefreq>${page.freq}</changefreq>\n    <priority>${page.priority}</priority>\n  </url>`
+      )
+      .join('\n');
     res.setHeader('content-type', 'application/xml; charset=utf-8');
     res.end(
-      `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${base}/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-  </url>
-</urlset>
-`
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`
     );
     return;
   }

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Matrix visualiser in 3D — spiral traversal and transpose | Algo3D</title>
+    <meta
+      name="description"
+      content="See a two-dimensional int[][] grid drawn in 3D and step through a spiral read or an in-place transpose, with row and column indices on every cell. Free, in the browser."
+    />
+    <link rel="canonical" href="/topics/matrices/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Matrix visualiser in 3D — Algo3D" />
+    <meta
+      property="og:description"
+      content="Spiral traversal and transpose of a 2D int[][] grid, drawn step by step in 3D."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/matrices/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Matrix visualiser",
+            "item": "https://algo3-d.vercel.app/topics/matrices/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=matrix">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/" aria-current="page">Matrices</a>
+      <a href="/topics/stacks/">Stacks</a>
+      <a href="/topics/queues/">Queues</a>
+      <a href="/topics/linked-lists/">Linked lists</a>
+      <a href="/topics/binary-search-trees/">Binary search trees</a>
+      <a href="/topics/graphs/">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Matrices · traversal · transpose</p>
+      <h1>Matrix visualiser in 3D</h1>
+      <p class="lead">
+        Two nested loops over a grid are easy to write and hard to picture. Algo3D lays the grid out
+        as a plate of 3D cells with the row and column of each one printed on it, then walks the
+        traversal you picked, marking every cell the moment it is read. The bounds
+        <code>top</code>, <code>bottom</code>, <code>left</code> and <code>right</code> stay visible
+        while they shrink, which is exactly the part of a spiral program that goes wrong.
+      </p>
+
+      <div class="cta">
+        <p>Open the matrix view with a 4 × 5 grid and watch the spiral turn.</p>
+        <a class="btn" href="/?mode=library&amp;topic=matrix">Run the matrix view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>A grid of cells, each labelled <code>m[row][col]</code>, standing on a themed plate instead of a flat table.</li>
+        <li>The cell being read lifts and turns gold; cells already collected stay marked so the trail of the walk is visible.</li>
+        <li>For the spiral, the four shrinking bounds are the story: the top row goes, then the right column, then the bottom row, then the left.</li>
+        <li>The step note counts what has been collected so far, so the output list is never a guess.</li>
+        <li>Drag to orbit and look along a row or a column, and the row-major order of the grid becomes obvious.</li>
+      </ul>
+
+      <h2>The two programs in the library</h2>
+      <table>
+        <thead>
+          <tr><th>Program</th><th>What it does</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Spiral</td><td>Reads the border, then the next border, until the grid is empty</td><td>O(rows × cols)</td></tr>
+          <tr><td>Transpose</td><td>Writes <code>m[r][c]</code> into <code>t[c][r]</code> for every cell</td><td>O(rows × cols), O(rows × cols) extra space</td></tr>
+        </tbody>
+      </table>
+
+      <h2>The code that runs</h2>
+      <p>Spiral traversal, with the four bounds named the way the scene names them:</p>
+      <pre><code>List&lt;Integer&gt; spiral(int[][] m) {
+    List&lt;Integer&gt; out = new ArrayList&lt;&gt;();
+    int top = 0, bottom = m.length - 1;
+    int left = 0, right = m[0].length - 1;
+    while (top &lt;= bottom &amp;&amp; left &lt;= right) {
+        for (int c = left; c &lt;= right; c++) out.add(m[top][c]);
+        top++;
+        for (int r = top; r &lt;= bottom; r++) out.add(m[r][right]);
+        right--;
+        for (int c = right; c &gt;= left &amp;&amp; top &lt;= bottom; c--) out.add(m[bottom][c]);
+        bottom--;
+        for (int r = bottom; r &gt;= top &amp;&amp; left &lt;= right; r--) out.add(m[r][left]);
+        left++;
+    }
+    return out;
+}</code></pre>
+      <p>
+        The transpose program allocates <code>int[cols][rows]</code> and copies one cell per
+        iteration, so the scene shows a cell landing in the mirrored position of a second grid.
+      </p>
+
+      <h2>Why draw the grid in three dimensions</h2>
+      <p>
+        On a whiteboard a grid is already two-dimensional, so the third dimension buys something
+        different: depth. Cells that have been read sit a little differently from cells that have
+        not, the bounds can be drawn as edges in the air, and the order of the walk is visible from
+        an angle rather than inferred from numbers in a console.
+      </p>
+      <p>
+        That matters most for the spiral, where a single missing bound check turns an elegant
+        traversal into a duplicated cell — the scene shows the extra read the moment it happens.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/arrays/"><b>Arrays &amp; sorting</b><span>Index pointers over a flat run of slots</span></a>
+        </li>
+        <li>
+          <a href="/topics/graphs/"><b>Graphs</b><span>Neighbours in every direction, BFS and DFS</span></a>
+        </li>
+        <li>
+          <a href="/topics/queues/"><b>Queues</b><span>The FIFO order that BFS runs on</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/arrays/">Arrays</a> ·
+          <a href="/topics/stacks/">Stacks</a> ·
+          <a href="/topics/queues/">Queues</a> ·
+          <a href="/topics/linked-lists/">Linked lists</a> ·
+          <a href="/topics/binary-search-trees/">BSTs</a> ·
+          <a href="/topics/graphs/">Graphs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

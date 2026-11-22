@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graph visualiser in 3D — BFS and DFS side by side | Algo3D</title>
+    <meta
+      name="description"
+      content="An undirected graph floating in 3D: watch a breadth-first frontier grow, edges light up as they are traversed, and compare BFS with DFS on the same seven vertices. Free in the browser."
+    />
+    <link rel="canonical" href="/topics/graphs/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Graph visualiser in 3D — BFS and DFS | Algo3D" />
+    <meta
+      property="og:description"
+      content="Breadth-first and depth-first traversal of an undirected graph, drawn step by step in 3D."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/graphs/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Graph visualiser",
+            "item": "https://algo3-d.vercel.app/topics/graphs/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=graph">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/">Matrices</a>
+      <a href="/topics/stacks/">Stacks</a>
+      <a href="/topics/queues/">Queues</a>
+      <a href="/topics/linked-lists/">Linked lists</a>
+      <a href="/topics/binary-search-trees/">Binary search trees</a>
+      <a href="/topics/graphs/" aria-current="page">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Graphs · BFS · DFS</p>
+      <h1>Graph visualiser in 3D</h1>
+      <p class="lead">
+        A graph is the general case: any vertex can reach any other through an edge. Algo3D draws an
+        undirected adjacency-list graph in space, marks the vertices already seen, and grows the
+        frontier one step at a time — so the difference between breadth-first and depth-first is a
+        shape you can point at rather than two code listings.
+      </p>
+
+      <div class="cta">
+        <p>Open the graph view, pick a start vertex and switch between BFS and DFS.</p>
+        <a class="btn" href="/?mode=library&amp;topic=graph">Run the graph view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>Seven vertices, A to G, joined by nine undirected edges, floating in a force-style layout.</li>
+        <li>The frontier is visible at every step: the vertices discovered but not yet visited.</li>
+        <li>An edge lights up as it is traversed, and a vertex changes state when it is marked seen.</li>
+        <li>BFS spreads outward level by level through a queue; DFS dives along one path and backtracks through a stack.</li>
+        <li>Drag to orbit — in 3D the edges that cross on a flat drawing are visibly not touching.</li>
+      </ul>
+
+      <h2>The two traversals and their cost</h2>
+      <table>
+        <thead>
+          <tr><th>Traversal</th><th>Data structure</th><th>What it finds</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>BFS</td><td>A queue of vertices</td><td>Shortest path in edge count, level by level</td></tr>
+          <tr><td>DFS</td><td>A stack (or recursion)</td><td>Reachability, and the basis for cycle detection and topological sort</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Both run in O(V + E) with an adjacency list: every vertex is queued or pushed at most once,
+        and every edge is looked at once from each end. The graph here has 7 vertices and 9 edges, so
+        the whole traversal is 16 operations of work.
+      </p>
+
+      <h2>The code that runs</h2>
+      <pre><code>void bfs(Map&lt;String, List&lt;String&gt;&gt; g, String start) {
+    Set&lt;String&gt; seen = new HashSet&lt;&gt;();
+    Queue&lt;String&gt; q = new ArrayDeque&lt;&gt;();
+    q.add(start);
+    seen.add(start);
+    while (!q.isEmpty()) {
+        String u = q.poll();
+        visit(u);
+        for (String v : g.get(u)) {
+            if (seen.add(v)) q.add(v);      // add returns false if already seen
+        }
+    }
+}</code></pre>
+      <p>
+        The DFS program is the same loop with a <code>Deque</code> used as a stack, which is why the
+        order of the visit changes completely while the code looks almost identical.
+      </p>
+
+      <h2>Why the third dimension helps</h2>
+      <p>
+        Graph drawings on paper are a compromise: edges are forced to cross, and a reader has to
+        check whether two lines actually meet. In a 3D layout the positions are real, so an edge
+        either joins two blocks or it does not. The frontier, the visited set and the traversed edges
+        can also occupy different spaces without any of them hiding the others.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/queues/"><b>Queues</b><span>The structure BFS runs on</span></a>
+        </li>
+        <li>
+          <a href="/topics/stacks/"><b>Stacks</b><span>The structure DFS runs on</span></a>
+        </li>
+        <li>
+          <a href="/topics/binary-search-trees/"><b>Binary search trees</b><span>A graph with no cycles</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/arrays/">Arrays</a> ·
+          <a href="/topics/matrices/">Matrices</a> ·
+          <a href="/topics/stacks/">Stacks</a> ·
+          <a href="/topics/queues/">Queues</a> ·
+          <a href="/topics/linked-lists/">Linked lists</a> ·
+          <a href="/topics/binary-search-trees/">BSTs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

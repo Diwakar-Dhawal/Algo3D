@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Binary search tree visualiser in 3D — insert, search, in-order | Algo3D</title>
+    <meta
+      name="description"
+      content="Insert into a binary search tree in 3D, walk the comparison path, recurse in order and search for a value. See why a balanced tree is O(log n) and a sorted insertion is not. Free in the browser."
+    />
+    <link rel="canonical" href="/topics/binary-search-trees/" />
+    <link rel="stylesheet" href="/topics/topics.css" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Algo3D" />
+    <meta property="og:title" content="Binary search tree visualiser in 3D — Algo3D" />
+    <meta
+      property="og:description"
+      content="Insert, search and traverse in-order through a binary search tree drawn in 3D."
+    />
+    <meta property="og:url" content="https://algo3-d.vercel.app/topics/binary-search-trees/" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Algo3D", "item": "https://algo3-d.vercel.app/" },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Binary search tree visualiser",
+            "item": "https://algo3-d.vercel.app/topics/binary-search-trees/"
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the page</a>
+    <header class="top">
+      <a class="brand" href="/"><span class="mark">A3</span> Algo3D</a>
+      <a class="cta-sm" href="/?mode=library&amp;topic=tree">Open the visualiser</a>
+    </header>
+    <nav class="topics" aria-label="Topics">
+      <a href="/topics/arrays/">Arrays &amp; sorting</a>
+      <a href="/topics/matrices/">Matrices</a>
+      <a href="/topics/stacks/">Stacks</a>
+      <a href="/topics/queues/">Queues</a>
+      <a href="/topics/linked-lists/">Linked lists</a>
+      <a href="/topics/binary-search-trees/" aria-current="page">Binary search trees</a>
+      <a href="/topics/graphs/">Graphs</a>
+    </nav>
+
+    <main class="wrap" id="main">
+      <p class="eyebrow">Trees · recursion · balanced search</p>
+      <h1>Binary search tree visualiser in 3D</h1>
+      <p class="lead">
+        A binary search tree is a recursive rule made of nodes: everything smaller goes left,
+        everything larger goes right, and the same rule holds in every subtree. Algo3D draws the tree
+        in space, lights the comparison path during an insert, and recurses visibly during an in-order
+        traversal.
+      </p>
+
+      <div class="cta">
+        <p>Open the tree view with seven values and insert one to watch the path.</p>
+        <a class="btn" href="/?mode=library&amp;topic=tree">Run the tree view →</a>
+      </div>
+
+      <h2>What the 3D view shows</h2>
+      <ul>
+        <li>One block per node, placed by depth, with edges to its left and right child.</li>
+        <li>An insert starts at the root and moves down one comparison at a time, with the visited nodes highlighted on the way.</li>
+        <li>A missing child is where the new node appears — the search for a place and the insert are the same walk.</li>
+        <li>In-order traversal visits left subtree, node, right subtree, and the scene shows the visit order as values leave the tree.</li>
+        <li>Search stops on a hit or on a <code>null</code>, which is the difference between “not found” and “still going”.</li>
+      </ul>
+
+      <h2>The cost of each operation</h2>
+      <table>
+        <thead>
+          <tr><th>Operation</th><th>What happens</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Insert</td><td>One comparison per level, then attach a leaf</td><td>O(log n) balanced, O(n) degenerate</td></tr>
+          <tr><td>Search</td><td>Same walk, stopping on a hit or a null child</td><td>O(log n) balanced, O(n) degenerate</td></tr>
+          <tr><td>In-order traversal</td><td>Every node exactly once</td><td>O(n)</td></tr>
+          <tr><td>Minimum / maximum</td><td>Follow left or right to the end</td><td>O(log n) balanced</td></tr>
+        </tbody>
+      </table>
+      <p>
+        The second half of every row is the honest half. Insert already-sorted values and the tree
+        becomes a linked list with extra steps; the shape in the scene is the explanation.
+      </p>
+
+      <h2>The code that runs</h2>
+      <pre><code>class Node {
+    int value;
+    Node left, right;
+}
+
+Node insert(Node node, int value) {
+    if (node == null) return new Node(value);   // found the empty slot
+    if (value &lt; node.value) node.left = insert(node.left, value);
+    else if (value &gt; node.value) node.right = insert(node.right, value);
+    return node;                                // duplicates are ignored
+}
+
+void inorder(Node node, List&lt;Integer&gt; out) {
+    if (node == null) return;
+    inorder(node.left, out);                    // everything smaller
+    out.add(node.value);                        // visit
+    inorder(node.right, out);                   // everything larger
+}</code></pre>
+
+      <h2>Why the tree is worth drawing</h2>
+      <p>
+        Recursion is usually taught with a call stack diagram, which explains the mechanism but not
+        the shape. A tree drawn in space shows both at once: the recursion is the descent, and the
+        in-order output is the sorted order, which is the reason the structure exists.
+      </p>
+      <p>
+        The degenerate case is the other reason. Seven ascending values produce a chain, and seeing
+        that chain next to a balanced tree makes “a BST is only fast if it is balanced” something you
+        have looked at rather than something you have been told.
+      </p>
+
+      <h2>Related views</h2>
+      <ul class="related">
+        <li>
+          <a href="/topics/graphs/"><b>Graphs</b><span>A tree is a graph without cycles</span></a>
+        </li>
+        <li>
+          <a href="/topics/linked-lists/"><b>Linked lists</b><span>What a degenerate tree looks like</span></a>
+        </li>
+        <li>
+          <a href="/topics/arrays/"><b>Arrays &amp; sorting</b><span>Binary search over a sorted array</span></a>
+        </li>
+      </ul>
+
+      <footer class="foot">
+        <p>
+          <b>Algo3D</b> is a free code visualiser for data structures and algorithms: write Java,
+          Python, JavaScript or C++ and watch every step in 3D, in the browser, with nothing to
+          install.
+        </p>
+        <p>
+          <a href="/">Home</a> ·
+          <a href="/topics/arrays/">Arrays</a> ·
+          <a href="/topics/matrices/">Matrices</a> ·
+          <a href="/topics/stacks/">Stacks</a> ·
+          <a href="/topics/queues/">Queues</a> ·
+          <a href="/topics/linked-lists/">Linked lists</a> ·
+          <a href="/topics/graphs/">Graphs</a>
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
