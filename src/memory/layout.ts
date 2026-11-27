@@ -335,28 +335,49 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
         used.add(obj.id);
         continue;
       }
-      const count = Math.min(obj.cells.length, Math.max(1, Math.floor((areaW - 12) / (cellSize + cellGap))));
-      const bandY = nextBand(28 + cellSize + 18);
+      // every cell gets its own tile: a long array wraps onto extra rows and
+      // shrinks a little when the rows do not fit, instead of ending in a "+2"
+      // that left the rest of the list unreadable
+      const availW = Math.max(60, areaW - 12);
+      const availH = Math.max(cellSize + cellGap, bottom - cursor - 40);
+      let box = cellSize;
+      let gapPx = cellGap;
+      let perRow = 1;
+      let rows = obj.cells.length;
+      for (let candidate = cellSize; candidate >= 16; candidate -= 2) {
+        const gap = candidate >= 28 ? cellGap : 7;
+        const fits = Math.max(1, Math.floor((availW + gap) / (candidate + gap)));
+        const needed = Math.ceil(obj.cells.length / fits);
+        box = candidate;
+        gapPx = gap;
+        perRow = fits;
+        rows = needed;
+        if (needed * (candidate + gap) <= availH) break;
+      }
+      const rowH = box + gapPx;
       const showRefs = obj.cells.some((c) => c.kind === 'ref');
+      const bandY = nextBand(24 + (rows - 1) * rowH + box + (showRefs ? 30 : 16));
 
       labels.push({
         key: `g-${obj.id}`,
         x: left,
         y: bandY + 6,
-        text: `${obj.label} @${obj.id}${obj.cells.length > count ? ` · ${obj.cells.length} items` : ''}`,
+        text: `${obj.label} @${obj.id}${rows > 1 ? ` · ${obj.cells.length} items` : ''}`,
         align: 'left',
         kind: 'group',
       });
 
-      obj.cells.slice(0, count).forEach((cell, index) => {
-        const x = left + cellSize / 2 + index * (cellSize + cellGap);
-        const y = bandY + 24 + cellSize / 2;
+      obj.cells.forEach((cell, index) => {
+        const row = Math.floor(index / perRow);
+        const col = index % perRow;
+        const x = left + box / 2 + col * rowH;
+        const y = bandY + 24 + row * rowH + box / 2;
         const effect = effectFor(obj.id, index);
         nodes.push({
           key: `c-${obj.id}-${index}`,
           x,
           y,
-          size: cellSize,
+          size: box,
           label: valText(cell),
           mark: effect ? 'active' : cell.kind === 'ref' ? 'path' : 'idle',
           objId: obj.id,
@@ -365,43 +386,33 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
           title: `${obj.label}[${index}]`,
         });
         // one straight rail per neighbouring pair: the sequence reads as a
-        // single list without having to decode index numbers
-        if (index > 0) {
+        // single list without having to decode index numbers. A row break is
+        // already a visible wrap, so it gets no rail across the gap
+        if (col > 0) {
           edges.push({
             key: `rail-${obj.id}-${index}`,
             from: `c-${obj.id}-${index - 1}`,
             to: `c-${obj.id}-${index}`,
-            x1: x - cellSize / 2 - cellGap,
+            x1: x - box / 2 - gapPx,
             y1: y,
-            x2: x - cellSize / 2,
+            x2: x - box / 2,
             y2: y,
             soft: true,
-            trimA: cellSize / 2,
-            trimB: cellSize / 2,
+            trimA: box / 2,
+            trimB: box / 2,
           });
         }
       });
 
-      if (obj.cells.length > count) {
-        labels.push({
-          key: `more-${obj.id}`,
-          x: left + count * (cellSize + cellGap) + 6,
-          y: bandY + 24 + cellSize / 2,
-          text: `+${obj.cells.length - count}`,
-          align: 'left',
-          kind: 'more',
-        });
-      }
       if (showRefs) {
         labels.push({
           key: `refs-${obj.id}`,
           x: left,
-          y: bandY + 24 + cellSize + 8,
+          y: bandY + 24 + (rows - 1) * rowH + box + 8,
           text: 'holds references',
           align: 'left',
           kind: 'null',
         });
-        cursor += 12;
       }
       used.add(obj.id);
       continue;
