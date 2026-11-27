@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Mark } from '../topics/types';
 import { BoxValue } from './BoxValue';
 import { Label } from './Label';
+import { bendLegs } from './bend';
 import { stableIds as resolveIds, type IdEntry } from './identity';
 import { planMotions } from './motion';
 
@@ -38,6 +39,8 @@ export type EdgeSpec = {
   trimA?: number;
   trimB?: number;
   soft?: boolean;
+  /** wrap the link around a line break instead of drawing it straight */
+  bend?: boolean;
 };
 
 export type SpawnDir = 'above' | 'below' | 'left' | 'right' | 'center';
@@ -109,6 +112,16 @@ function Motion({ id, to, from, arc, entering, exiting, delay, duration, store, 
     start.current.set(...from);
     began.current = performance.now() + delay;
   }
+
+  // links register their frame callback before the blocks they join, so the
+  // first frame after a mount has no endpoints to read. Seed the store now so
+  // a new rail is drawn in that first frame instead of appearing a frame late.
+  useLayoutEffect(() => {
+    const slot = store.current.get(id) ?? new THREE.Vector3();
+    slot.set(...from);
+    store.current.set(id, slot);
+    // only the mount position matters: every later frame is driven by useFrame
+  }, []);
 
   /** Where the user has placed this block relative to its layout slot. */
   const offsetOf = () => {
@@ -257,20 +270,49 @@ const vDir = new THREE.Vector3();
 const vStart = new THREE.Vector3();
 const vEnd = new THREE.Vector3();
 const q = new THREE.Quaternion();
+const legStart = new THREE.Vector3();
+const legEnd = new THREE.Vector3();
+const cornerA = new THREE.Vector3();
+const cornerB = new THREE.Vector3();
+
+/**
+ * A link mesh is born as a one-unit cylinder standing at the world origin. A
+ * link that has no usable endpoints — or whose endpoints sit on top of each
+ * other — used to leave that cylinder where it was born, which is the bright
+ * vertical sliver that appeared in the middle of the drawing.
+ */
+const blank = (...meshes: (THREE.Mesh | null)[]) => {
+  for (const mesh of meshes) if (mesh) mesh.visible = false;
+};
+
+/** points one leg of a link from `from` to `to`; hidden when there is no leg */
+const placeLeg = (mesh: THREE.Mesh | null, from: THREE.Vector3, to: THREE.Vector3) => {
+  if (!mesh) return;
+  vDir.subVectors(to, from);
+  const span = vDir.length();
+  mesh.visible = span > 0.02;
+  if (!mesh.visible) return;
+  vDir.normalize();
+  mesh.position.copy(from).addScaledVector(vDir, span / 2);
+  mesh.quaternion.copy(q.setFromUnitVectors(UP, vDir));
+  mesh.scale.set(1, span, 1);
+};
 
 function Edge({ a, b, arrow, color = '#b08d57', radius = 0.028, trimA = 0, trimB = 0, soft, store }: EdgeSpec & { store: MutableRefObject<Map<string, THREE.Vector3>> }) {
   const shaft = useRef<THREE.Mesh>(null);
   const tip = useRef<THREE.Mesh>(null);
   const ink = soft ? '#c3b49a' : color;
 
+  useLayoutEffect(() => blank(shaft.current, tip.current), []);
+
   useFrame(() => {
     const pa = store.current.get(a);
     const pb = store.current.get(b);
-    if (!pa || !pb) return;
+    if (!pa || !pb) return blank(shaft.current, tip.current);
 
     vDir.subVectors(pb, pa);
     const span = vDir.length();
-    if (span < 0.001) return;
+    if (span < 0.001) return blank(shaft.current, tip.current);
     vDir.normalize();
 
     vStart.copy(pa).addScaledVector(vDir, trimA);
@@ -304,6 +346,56 @@ function Edge({ a, b, arrow, color = '#b08d57', radius = 0.028, trimA = 0, trimB
           <meshStandardMaterial color={ink} emissive={ink} emissiveIntensity={0.4} roughness={0.55} />
         </mesh>
       )}
+    </>
+  );
+}
+
+/**
+ * The link that carries an array across a line break: out of the bottom of the
+ * last cell on a line, along the gap, and into the top of the first cell on the
+ * next line. The rows keep reading left to right and the turn is drawn, so a
+ * wrapped array still reads as one sequence instead of two neighbours.
+ */
+function Bend({ a, b, color = '#c3b49a', radius = 0.022, trimA = 0, trimB = 0, store }: EdgeSpec & { store: MutableRefObject<Map<string, THREE.Vector3>> }) {
+  const down = useRef<THREE.Mesh>(null);
+  const across = useRef<THREE.Mesh>(null);
+  const into = useRef<THREE.Mesh>(null);
+  const ink = color;
+
+  useLayoutEffect(() => blank(down.current, across.current, into.current), []);
+
+  useFrame(() => {
+    const pa = store.current.get(a);
+    const pb = store.current.get(b);
+    if (!pa || !pb) return blank(down.current, across.current, into.current);
+
+    // both ends sit on the cell edge and the turn runs along the gap between
+    // the two lines
+    const legs = bendLegs([pa.x, pa.y, pa.z], [pb.x, pb.y, pb.z], trimA, trimB);
+    legStart.set(...legs[0].from);
+    cornerA.set(...legs[0].to);
+    cornerB.set(...legs[1].to);
+    legEnd.set(...legs[2].to);
+
+    placeLeg(down.current, legStart, cornerA);
+    placeLeg(across.current, cornerA, cornerB);
+    placeLeg(into.current, cornerB, legEnd);
+  });
+
+  return (
+    <>
+      <mesh ref={down}>
+        <cylinderGeometry args={[radius, radius, 1, 8]} />
+        <meshStandardMaterial color={ink} emissive={ink} emissiveIntensity={0.12} roughness={0.55} />
+      </mesh>
+      <mesh ref={across}>
+        <cylinderGeometry args={[radius, radius, 1, 8]} />
+        <meshStandardMaterial color={ink} emissive={ink} emissiveIntensity={0.12} roughness={0.55} />
+      </mesh>
+      <mesh ref={into}>
+        <cylinderGeometry args={[radius, radius, 1, 8]} />
+        <meshStandardMaterial color={ink} emissive={ink} emissiveIntensity={0.12} roughness={0.55} />
+      </mesh>
     </>
   );
 }
@@ -390,9 +482,13 @@ export function AnimatedStage({
     <group>
       {edges
         .filter((edge) => nextIds.has(edge.a) && nextIds.has(edge.b))
-        .map((edge) => (
-          <Edge key={edge.id} {...edge} store={store} />
-        ))}
+        .map((edge) =>
+          edge.bend ? (
+            <Bend key={edge.id} {...edge} store={store} />
+          ) : (
+            <Edge key={edge.id} {...edge} store={store} />
+          )
+        )}
 
       {tiles.map((tile, index) => {
         const motion = plan.motions.get(tile.id)!;

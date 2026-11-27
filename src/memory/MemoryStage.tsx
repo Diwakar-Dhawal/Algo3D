@@ -151,6 +151,7 @@ export function MemoryStage({ step, stepIndex, onInspect, animMs, resetKey }: Pr
     b: tileIdOf.get(edge.to) ?? edge.to,
     arrow: edge.arrow,
     soft: edge.soft,
+    bend: edge.bend,
     // cell rails stop at the box edge; chain links keep the node-sized trim
     trimA: (edge.trimA ?? (NODE / 2) * 0.94) / ppu,
     trimB: (edge.trimB ?? (NODE / 2) * 0.94) / ppu,

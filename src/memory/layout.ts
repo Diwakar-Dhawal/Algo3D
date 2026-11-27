@@ -38,6 +38,8 @@ export type MemEdge = {
   /** gap in px kept free at each end (cells are smaller than list nodes) */
   trimA?: number;
   trimB?: number;
+  /** route out of the bottom of `from`, across, and into the top of `to` */
+  bend?: boolean;
 };
 
 export type MemVar = { name: string; value: string; prev?: string; changed: boolean; ref?: number };
@@ -338,8 +340,9 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
       // every cell gets its own tile, and the array has to read as ONE
       // sequence: the box shrinks to keep the whole thing on a single line
       // while the numbers are still legible, and only a genuinely long array
-      // wraps — as a snake, so the rail from the end of a line to the start of
-      // the next one never breaks and the lines cannot look like two arrays
+      // wraps. Every line runs left to right like text — reading order is how
+      // people hunt for an index — and a drawn elbow joins the end of a line
+      // to the start of the next one, so the wrap still reads as one sequence
       const n = obj.cells.length;
       const availW = Math.max(60, areaW - 12);
       const availH = Math.max(cellSize + cellGap, bottom - cursor - 40);
@@ -389,16 +392,12 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
         kind: 'group',
       });
 
-      // odd lines run right to left, so index i+1 always sits next to index i
-      const centreOf = (index: number) => {
-        const row = Math.floor(index / perRow);
-        const slot = index % perRow;
-        const col = row % 2 === 0 ? slot : perRow - 1 - slot;
-        return {
-          x: left + box / 2 + col * rowH,
-          y: bandY + 24 + row * rowH + box / 2,
-        };
-      };
+      // every line starts at the left margin, so index n is always under the
+      // same column as the index above it
+      const centreOf = (index: number) => ({
+        x: left + box / 2 + (index % perRow) * rowH,
+        y: bandY + 24 + Math.floor(index / perRow) * rowH + box / 2,
+      });
 
       obj.cells.forEach((cell, index) => {
         const { x, y } = centreOf(index);
@@ -415,8 +414,9 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
           prev: effect?.prev ? valText(effect.prev) : undefined,
           title: `${obj.label}[${index}]`,
         });
-        // one rail per neighbouring pair, including the elbow that joins one
-        // line to the next: the sequence is unbroken from first cell to last
+        // one rail per neighbouring pair. A pair split by the wrap gets an
+        // elbow instead of a straight diagonal, so the link follows the text
+        // order: down out of the last cell, across the gap, into the next line
         if (index > 0) {
           const prev = centreOf(index - 1);
           edges.push({
@@ -430,6 +430,7 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
             soft: true,
             trimA: box / 2,
             trimB: box / 2,
+            bend: index % perRow === 0,
           });
         }
       });
