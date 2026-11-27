@@ -335,24 +335,46 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
         used.add(obj.id);
         continue;
       }
-      // every cell gets its own tile: a long array wraps onto extra rows and
-      // shrinks a little when the rows do not fit, instead of ending in a "+2"
-      // that left the rest of the list unreadable
+      // every cell gets its own tile, and the array has to read as ONE
+      // sequence: the box shrinks to keep the whole thing on a single line
+      // while the numbers are still legible, and only a genuinely long array
+      // wraps — as a snake, so the rail from the end of a line to the start of
+      // the next one never breaks and the lines cannot look like two arrays
+      const n = obj.cells.length;
       const availW = Math.max(60, areaW - 12);
       const availH = Math.max(cellSize + cellGap, bottom - cursor - 40);
+      const floor = width < 560 ? 16 : 18;
+      const gapAt = (size: number) => (size >= 28 ? cellGap : 7);
+      const perLineAt = (size: number) =>
+        Math.max(1, Math.floor((availW + gapAt(size)) / (size + gapAt(size))));
+
       let box = cellSize;
       let gapPx = cellGap;
-      let perRow = 1;
-      let rows = obj.cells.length;
-      for (let candidate = cellSize; candidate >= 16; candidate -= 2) {
-        const gap = candidate >= 28 ? cellGap : 7;
-        const fits = Math.max(1, Math.floor((availW + gap) / (candidate + gap)));
-        const needed = Math.ceil(obj.cells.length / fits);
-        box = candidate;
-        gapPx = gap;
-        perRow = fits;
-        rows = needed;
-        if (needed * (candidate + gap) <= availH) break;
+      let perRow = perLineAt(cellSize);
+      let rows = Math.ceil(n / perRow);
+      for (let candidate = cellSize; candidate >= floor; candidate -= 2) {
+        const fits = perLineAt(candidate);
+        if (n <= fits) {
+          box = candidate;
+          gapPx = gapAt(candidate);
+          perRow = fits;
+          rows = 1;
+          break;
+        }
+      }
+      if (rows !== 1) {
+        // too long for one line at any legible size: widest box whose lines
+        // still fit the pane
+        for (let candidate = cellSize; candidate >= floor; candidate -= 2) {
+          const gap = gapAt(candidate);
+          const fits = perLineAt(candidate);
+          const needed = Math.ceil(n / fits);
+          box = candidate;
+          gapPx = gap;
+          perRow = fits;
+          rows = needed;
+          if (needed * (candidate + gap) <= availH) break;
+        }
       }
       const rowH = box + gapPx;
       const showRefs = obj.cells.some((c) => c.kind === 'ref');
@@ -367,11 +389,19 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
         kind: 'group',
       });
 
-      obj.cells.forEach((cell, index) => {
+      // odd lines run right to left, so index i+1 always sits next to index i
+      const centreOf = (index: number) => {
         const row = Math.floor(index / perRow);
-        const col = index % perRow;
-        const x = left + box / 2 + col * rowH;
-        const y = bandY + 24 + row * rowH + box / 2;
+        const slot = index % perRow;
+        const col = row % 2 === 0 ? slot : perRow - 1 - slot;
+        return {
+          x: left + box / 2 + col * rowH,
+          y: bandY + 24 + row * rowH + box / 2,
+        };
+      };
+
+      obj.cells.forEach((cell, index) => {
+        const { x, y } = centreOf(index);
         const effect = effectFor(obj.id, index);
         nodes.push({
           key: `c-${obj.id}-${index}`,
@@ -385,17 +415,17 @@ export function buildLayout(step: TraceStep, width: number, height: number, stac
           prev: effect?.prev ? valText(effect.prev) : undefined,
           title: `${obj.label}[${index}]`,
         });
-        // one straight rail per neighbouring pair: the sequence reads as a
-        // single list without having to decode index numbers. A row break is
-        // already a visible wrap, so it gets no rail across the gap
-        if (col > 0) {
+        // one rail per neighbouring pair, including the elbow that joins one
+        // line to the next: the sequence is unbroken from first cell to last
+        if (index > 0) {
+          const prev = centreOf(index - 1);
           edges.push({
             key: `rail-${obj.id}-${index}`,
             from: `c-${obj.id}-${index - 1}`,
             to: `c-${obj.id}-${index}`,
-            x1: x - box / 2 - gapPx,
-            y1: y,
-            x2: x - box / 2,
+            x1: prev.x,
+            y1: prev.y,
+            x2: x,
             y2: y,
             soft: true,
             trimA: box / 2,
