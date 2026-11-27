@@ -3,6 +3,7 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Mark } from '../topics/types';
 import { BoxValue } from './BoxValue';
+import { Label } from './Label';
 import { stableIds as resolveIds, type IdEntry } from './identity';
 import { planMotions } from './motion';
 
@@ -15,6 +16,14 @@ export type TileSpec = {
   size?: [number, number, number];
   labelScale?: number;
   rotation?: [number, number, number];
+  /**
+   * text pinned under the block itself, e.g. an array index. It rides along
+   * when the block is dragged, so a hand-placed block never loses the slot
+   * it belongs to.
+   */
+  caption?: string;
+  captionScale?: number;
+  captionColor?: string;
   onInspect?: () => void;
 };
 
@@ -411,6 +420,14 @@ export function AnimatedStage({
               rotation={tile.rotation}
               onInspect={tile.onInspect}
             />
+            {tile.caption !== undefined && (
+              <Label
+                text={tile.caption}
+                color={tile.captionColor ?? '#8b7a5e'}
+                scale={tile.captionScale ?? 0.5}
+                position={[0, -(tile.size?.[1] ?? 1.1) / 2 - 0.43, 0]}
+              />
+            )}
           </Motion>
         );
       })}

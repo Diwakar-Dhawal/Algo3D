@@ -1,7 +1,6 @@
 import { Html } from '@react-three/drei';
 import type { ControlsProps, Mark, Program, Selected, Step, TopicModule } from './types';
 import { fitScale, lineCount, lineOf, parseNums } from './util';
-import { Label } from '../three/Label';
 import { AnimatedStage, useStableIds, type EdgeSpec, type TileSpec } from '../three/anim';
 
 type Algo = 'bubble' | 'selection' | 'insertion' | 'linear' | 'binary';
@@ -325,6 +324,10 @@ function View({ state, onInspect, animMs }: ViewProps) {
     value,
     mark: state.marks[i] ?? 'idle',
     pos: [(i - (n - 1) / 2) * gap, 0, 0],
+    // the index belongs to the slot, but it is drawn under its own block so a
+    // dragged block still says which index it holds
+    caption: String(i),
+    captionScale: 0.5,
     onInspect: () =>
       onInspect({
         title: `a[${i}]`,
@@ -339,17 +342,7 @@ function View({ state, onInspect, animMs }: ViewProps) {
 
   return (
     <group scale={scale}>
-      <AnimatedStage tiles={tiles} edges={rails} spawn="above" exit="below" duration={animMs}>
-        {state.values.map((_, i) => (
-          <Label
-            key={`slot-${i}`}
-            text={String(i)}
-            color="#8b7a5e"
-            scale={0.5}
-            position={[(i - (n - 1) / 2) * gap, -0.98, 0]}
-          />
-        ))}
-      </AnimatedStage>
+      <AnimatedStage tiles={tiles} edges={rails} spawn="above" exit="below" duration={animMs} />
       {state.pointers
         .filter((p) => p.index >= 0 && p.index < n)
         .map((p, k) => (
